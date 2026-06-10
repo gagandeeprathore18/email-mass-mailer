@@ -1,0 +1,81 @@
+ANTIGRAVITY MAILER: TECHNICAL PROJECT SUMMARY & ARCHITECTURE GUIDE
+================================================================
+
+Antigravity Mailer is a high-performance, SaaS-ready bulk mailing platform built with Node.js, Next.js, Nodemailer, and MySQL. It allows users to register their custom SMTP configurations (such as self-hosted servers or corporate Zimbra setups) and execute bulk marketing campaigns securely.
+
+----------------------------------------------------------------
+1. SYSTEM ARCHITECTURE
+----------------------------------------------------------------
+
+[SaaS User]
+    │
+    ▼ (Configures SMTP / Composes Campaign)
+[Next.js React Frontend]
+    │
+    ▼ (API requests)
+[Next.js API Routes]
+    ├──► [SMTP Utility Helper] ──► [Custom SMTP / Zimbra / IP Host]
+    ├──► [MySQL Database]
+    └──► [Background Bulk Sender] (Starts async sending loop)
+              │
+              ▼ (Uses connection pooling)
+         [SMTP Utility Helper]
+
+----------------------------------------------------------------
+2. CORE OPERATIONAL WORKFLOWS
+----------------------------------------------------------------
+
+A. DYNAMIC TLS/SSL MISMATCH FALLBACK
+Custom SMTP servers often use self-signed certificates or IP addresses instead of hostname domains, causing Node.js to throw "Hostname/IP does not match certificate's altnames".
+
+The system handles this gracefully in src/lib/smtp.ts using a strict-to-relaxed fallback pattern:
+
+1. Try with strict TLS/SSL validation first (production default).
+2. Detect if the failure was specifically due to a certificate validation mismatch (e.g. self-signed cert or domain altname invalid).
+3. Fall back to relaxed SSL verification (rejectUnauthorized: false).
+
+Code Flow:
+----------------------------------------------------------------
+try {
+  const transporter = createSmtpTransporter(config, { rejectUnauthorized: true });
+  await transporter.verify();
+  return { success: true, rejectUnauthorized: true };
+} catch (error) {
+  if (isTlsValidationError(error)) {
+    const fallbackTransporter = createSmtpTransporter(config, { rejectUnauthorized: false });
+    await fallbackTransporter.verify();
+    return { success: true, rejectUnauthorized: false };
+  }
+  throw error;
+}
+----------------------------------------------------------------
+
+B. DUAL-MODE RECIPIENT INPUT (EXCEL & MANUAL INPUT)
+Users can import recipient email lists using two complementary methods in the Campaign Creation UI:
+1. Excel Upload (.xlsx/.xls) parsed using the "xlsx" (SheetJS) library.
+2. Manual Typing which accepts a text string separated by newlines, commas, semicolons, or whitespace.
+
+Both inputs are routed to src/app/api/campaigns/route.ts where they are merged, validated via regex, and deduplicated inside a MySQL transaction:
+
+- Manual input is split using /[\n,;\s]+/ and valid emails are added.
+- Excel rows are parsed into JSON objects. The parser scans fields containing "email" or matching the email regex.
+- All email inputs are run through Set to remove duplicate email addresses.
+
+C. BACKGROUND BULK SEND LOOP WITH CONNECTION POOLING
+To prevent UI timeouts and server crashes during campaigns, bulk mail dispatch is executed in a non-blocking background context in src/app/api/send/execute/route.ts:
+
+1. Pre-flight Check: Runs a quick pre-check to detect if the user's SMTP server requires bypassing SSL verification.
+2. Connection Pooling: Opens a pooled transport using Nodemailer socket pooling (pool: true) to reuse sockets:
+   - maxConnections: 3 (limits concurrent connections).
+   - maxMessages: 100 (recreates socket after 100 sends).
+3. Throttled Dispatch: Iterates over the recipient queue, dispatching emails with a 300ms throttle delay to avoid spam filters:
+   - Sets client status to 'sent' on success, and 'failed' on failure.
+
+----------------------------------------------------------------
+3. DATABASE SCHEMA
+----------------------------------------------------------------
+
+The database relies on three main relational tables:
+- Users: Holds login credentials and user-defined SMTP settings.
+- Campaigns: Tracks subject lines, email templates, and campaign status ('draft', 'testing', 'executed').
+- Clients: Recipient logs tracking delivery statuses ('pending', 'sent', 'failed') and the created_at timestamp.
