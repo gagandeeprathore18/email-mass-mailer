@@ -1,18 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, FormEvent, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import ThemeToggle from '@/components/ThemeToggle';
 
 interface Campaign {
   id: number;
   subject: string;
   body: string;
-  status: 'draft' | 'testing' | 'executed';
+  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused';
   created_at: string;
   client_count: number;
   smtp_label?: string | null;
+  sent_count?: number;
+  failed_count?: number;
 }
 
 interface UserProfile {
@@ -28,86 +29,73 @@ interface SmtpAccount {
   from_email: string;
   is_verified: boolean;
   is_active: boolean;
+  host?: string;
+  port?: number;
 }
 
 export default function DashboardPage() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Data states
   const [user, setUser] = useState<UserProfile | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [smtpAccounts, setSmtpAccounts] = useState<SmtpAccount[]>([]);
   const [allSmtpAccounts, setAllSmtpAccounts] = useState<SmtpAccount[]>([]);
-  const [selectedSmtpId, setSelectedSmtpId] = useState<string>('');
   const [loadingUser, setLoadingUser] = useState<boolean>(true);
   const [loadingCampaigns, setLoadingCampaigns] = useState<boolean>(true);
   const [loadingSmtp, setLoadingSmtp] = useState<boolean>(true);
 
-  // Layout Tab State
-  const [activeTab, setActiveTab] = useState<'compose' | 'smtp'>('compose');
+  // Dynamic dashboard stats state
+  const [stats, setStats] = useState<{
+    deliveryPerformance: {
+      chart: { day: string; count: number; dateStr: string }[];
+      bounceRate: string;
+      peakTime: string;
+      topRegion: string;
+    };
+    smtpTunnels: { label: string; host: string; status: string }[];
+    summary?: {
+      totalSentCount: number;
+      deliveryRate: string;
+      tunnelHealth: string;
+      sentTrend: string;
+    };
+  } | null>(null);
+  const [loadingStats, setLoadingStats] = useState<boolean>(true);
 
-  // Campaign Form states
-  const [subject, setSubject] = useState<string>('');
-  const [body, setBody] = useState<string>('');
-  const [recipientMode, setRecipientMode] = useState<'excel' | 'manual'>('excel');
-  const [file, setFile] = useState<File | null>(null);
-  const [manualEmails, setManualEmails] = useState<string>('');
-  const [formLoading, setFormLoading] = useState<boolean>(false);
-  const [formError, setFormError] = useState<string>('');
-  const [formSuccess, setFormSuccess] = useState<string>('');
-
-  // Add SMTP Form states
-  const [smtpLabel, setSmtpLabel] = useState<string>('');
-  const [smtpHost, setSmtpHost] = useState<string>('');
-  const [smtpPort, setSmtpPort] = useState<string>('587');
-  const [smtpUsername, setSmtpUsername] = useState<string>('');
-  const [smtpPassword, setSmtpPassword] = useState<string>('');
-  const [smtpFromEmail, setSmtpFromEmail] = useState<string>('');
-  const [smtpVerifyLoading, setSmtpVerifyLoading] = useState<boolean>(false);
-  const [smtpFormError, setSmtpFormError] = useState<string>('');
-  const [smtpFormSuccess, setSmtpFormSuccess] = useState<string>('');
-
-  // Dropzone drag-over state
-  const [dragOver, setDragOver] = useState<boolean>(false);
+  // Pagination and search for dashboard table
+  const [campaignSearchTerm, setCampaignSearchTerm] = useState<string>('');
+  const [campaignPage, setCampaignPage] = useState<number>(1);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'campaigns'>('dashboard');
+  const campaignsPerPage = 5;
 
   // Fetch list of user's SMTP accounts
   async function fetchSmtpAccounts() {
     try {
-      console.log('DEBUG: Fetching SMTP accounts from /api/smtp...');
       const res = await fetch('/api/smtp');
-      console.log('DEBUG: Fetch SMTP response status:', res.status);
       if (res.ok) {
         const data = await res.json();
-        console.log('DEBUG: Fetch SMTP response data:', data);
         const accounts: SmtpAccount[] = data.smtpAccounts || [];
         setAllSmtpAccounts(accounts);
-        console.log('DEBUG: Total SMTP accounts fetched:', accounts.length, accounts);
-        
-        // Filter to only display verified & active SMTP configurations
-        const activeVerified = accounts.filter(acc => {
-          // Check both boolean true and numeric 1 to ensure robust compatibility.
-          const verified = acc.is_verified === true || Number(acc.is_verified) === 1;
-          const active = acc.is_active === true || Number(acc.is_active) === 1;
-          return verified && active;
-        });
-        
-        console.log('DEBUG: Active and verified SMTP accounts:', activeVerified);
-        setSmtpAccounts(activeVerified);
-        if (activeVerified.length > 0) {
-          setSelectedSmtpId(activeVerified[0].id.toString());
-          console.log('DEBUG: Set default selectedSmtpId to:', activeVerified[0].id.toString());
-        } else {
-          setSelectedSmtpId('');
-          console.warn('DEBUG: No active and verified SMTP accounts found after filtering.');
-        }
-      } else {
-        console.error('DEBUG: Failed to fetch SMTP accounts, status code not OK:', res.status);
       }
     } catch (err) {
-      console.error('DEBUG: Failed to fetch SMTP accounts due to error', err);
+      console.error('Failed to fetch SMTP accounts:', err);
     } finally {
       setLoadingSmtp(false);
+    }
+  }
+
+  // Fetch dynamic stats
+  async function fetchStats() {
+    try {
+      const res = await fetch('/api/dashboard/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stats:', err);
+    } finally {
+      setLoadingStats(false);
     }
   }
 
@@ -152,6 +140,7 @@ export default function DashboardPage() {
     fetchUser();
     fetchCampaigns();
     fetchSmtpAccounts();
+    fetchStats();
   }, [router]);
 
   const handleLogout = async () => {
@@ -166,665 +155,520 @@ export default function DashboardPage() {
     }
   };
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setDragOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFile = e.dataTransfer.files[0];
-      if (
-        droppedFile.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-        droppedFile.type === 'application/vnd.ms-excel' ||
-        droppedFile.name.endsWith('.xlsx') ||
-        droppedFile.name.endsWith('.xls')
-      ) {
-        setFile(droppedFile);
-      } else {
-        setFormError('Invalid file type. Please upload an Excel sheet (.xlsx, .xls).');
-      }
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFile(e.target.files[0]);
-    }
-  };
-
-  const handleCreateCampaign = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!subject || !body) {
-      setFormError('Please fill in both the subject and the body.');
-      return;
-    }
-
-    if (!selectedSmtpId) {
-      setFormError('Please select a verified sending account.');
-      return;
-    }
-
-    if (recipientMode === 'excel' && !file) {
-      setFormError('Please upload an Excel file.');
-      return;
-    }
-
-    if (recipientMode === 'manual' && !manualEmails.trim()) {
-      setFormError('Please manually enter at least one email.');
-      return;
-    }
-
-    setFormLoading(true);
-    setFormError('');
-    setFormSuccess('');
-
-    const formData = new FormData();
-    formData.append('subject', subject);
-    formData.append('body', body);
-    formData.append('smtpAccountId', selectedSmtpId);
-    if (recipientMode === 'excel' && file) {
-      formData.append('file', file);
-    } else if (recipientMode === 'manual') {
-      formData.append('manualEmails', manualEmails);
-    }
-
-    try {
-      const res = await fetch('/api/campaigns', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to create campaign.');
-      }
-
-      setFormSuccess(`Campaign successfully created with ${data.clientCount} recipients!`);
-      setSubject('');
-      setBody('');
-      setFile(null);
-      setManualEmails('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-
-      // Reload campaigns list
-      const campRes = await fetch('/api/campaigns');
-      if (campRes.ok) {
-        const campData = await campRes.json();
-        setCampaigns(campData.campaigns || []);
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setFormError(err.message);
-      } else {
-        setFormError('An unexpected error occurred.');
-      }
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  // Add/verify new SMTP account handler
-  const handleAddSmtp = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!smtpLabel || !smtpHost || !smtpPort || !smtpUsername || !smtpPassword || !smtpFromEmail) {
-      setSmtpFormError('Please fill in all SMTP fields.');
-      return;
-    }
-
-    setSmtpVerifyLoading(true);
-    setSmtpFormError('');
-    setSmtpFormSuccess('');
-
-    try {
-      const res = await fetch('/api/smtp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          label: smtpLabel,
-          host: smtpHost,
-          port: smtpPort,
-          username: smtpUsername,
-          password: smtpPassword,
-          from_email: smtpFromEmail,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to register SMTP account.');
-      }
-
-      setSmtpFormSuccess('SMTP connection verified and registered successfully!');
-      setSmtpLabel('');
-      setSmtpHost('');
-      setSmtpPort('587');
-      setSmtpUsername('');
-      setSmtpPassword('');
-      setSmtpFromEmail('');
-
-      // Refresh SMTP listings
-      await fetchSmtpAccounts();
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setSmtpFormError(err.message);
-      } else {
-        setSmtpFormError('An unexpected error occurred during SMTP verification.');
-      }
-    } finally {
-      setSmtpVerifyLoading(false);
-    }
-  };
-
   if (loadingUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bg-main text-text-muted">
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f7fb] text-slate-500 font-sans">
         <div className="flex flex-col items-center space-y-4">
-          <svg className="animate-spin h-10 w-10 text-indigo-500" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin h-10 w-10 text-[#5038ED]" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <span className="text-sm font-medium">Validating credentials...</span>
+          <span className="text-sm font-semibold">Validating credentials...</span>
         </div>
       </div>
     );
   }
 
+  // Derived statistics
+  const totalSentCount = campaigns.reduce((sum, c) => sum + (c.status === 'completed' ? c.client_count : 0), 0);
+  const activeSmtpCount = allSmtpAccounts.filter(acc => acc.is_active && acc.is_verified).length;
+  const totalSmtpCount = allSmtpAccounts.length;
+
+  // Filter & paginate campaigns
+  const filteredCampaigns = campaigns.filter(c => 
+    c.subject.toLowerCase().includes(campaignSearchTerm.toLowerCase()) ||
+    (c.smtp_label && c.smtp_label.toLowerCase().includes(campaignSearchTerm.toLowerCase()))
+  );
+  
+  const totalCampaignPages = Math.ceil(filteredCampaigns.length / campaignsPerPage) || 1;
+  const paginatedCampaigns = filteredCampaigns.slice(
+    (campaignPage - 1) * campaignsPerPage,
+    campaignPage * campaignsPerPage
+  );
+
   return (
-    <div className="min-h-screen bg-bg-main text-text-main flex flex-col transition-colors duration-200">
+    <div className="min-h-screen bg-[#f5f7fb] text-slate-900 flex flex-col font-sans">
+      
       {/* Top Navbar */}
-      <nav className="border-b border-border-main bg-bg-nav/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4 flex items-center justify-between transition-colors duration-200">
-        <div className="flex items-center space-x-3">
-          <span className="font-extrabold text-lg tracking-tight text-indigo-600 dark:text-white">
-            Email Mass Mailer
-          </span>
+      <nav className="sticky top-4 z-40 mx-auto w-[calc(100%-4rem)] max-w-7xl bg-white/70 backdrop-blur-md border border-slate-200/50 rounded-2xl shadow-lg px-8 py-3 flex items-center justify-between transition-all mt-4">
+        <div className="flex items-center space-x-12">
+          {/* Logo */}
+          <Link href="/dashboard" className="flex flex-col items-start leading-none">
+            <span className="font-extrabold text-2xl tracking-tight text-[#5038ED] leading-none">
+              Queuvo
+            </span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 leading-none">
+              Mass Mailer
+            </span>
+          </Link>
+
+          {/* Navigation Tabs */}
+          <div className="flex items-center space-x-8">
+            <button
+              onClick={() => {
+                setActiveTab('dashboard');
+                setCampaignPage(1);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className={`py-2 text-sm font-semibold relative transition-colors cursor-pointer ${
+                activeTab === 'dashboard' ? 'text-[#5038ED]' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              Dashboard
+              {activeTab === 'dashboard' && (
+                <span className="absolute bottom-[-13px] left-0 right-0 h-[3px] bg-[#5038ED] rounded-full" />
+              )}
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('campaigns');
+                const el = document.getElementById('your-campaigns-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`py-2 text-sm font-semibold relative transition-colors cursor-pointer ${
+                activeTab === 'campaigns' ? 'text-[#5038ED]' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              Campaigns
+              {activeTab === 'campaigns' && (
+                <span className="absolute bottom-[-13px] left-0 right-0 h-[3px] bg-[#5038ED] rounded-full" />
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-4">
-          {user && (
-            <div className="hidden md:flex flex-col text-right mr-1">
-              <span className="text-[10px] text-text-dimmed font-medium uppercase tracking-wide">Active User</span>
-              <span className="text-sm text-indigo-700 dark:text-indigo-300 font-semibold">{user.email}</span>
+        <div className="flex items-center space-x-5">
+          {/* User Profile / Logout */}
+          <div className="flex items-center space-x-4 pl-2 border-l border-slate-200">
+            <div className="flex items-center space-x-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-sm font-medium text-slate-600">
+                {user?.email || 'user@example.com'}
+              </span>
             </div>
-          )}
-          <ThemeToggle />
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-          >
-            Logout
-          </button>
+            <button 
+              onClick={handleLogout} 
+              className="px-3.5 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 hover:text-rose-600 text-slate-700 text-xs font-semibold rounded-lg transition-all cursor-pointer"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </nav>
 
-      {/* Main Container */}
-      <main className="flex-1 p-6 md:p-8 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-8 py-8">
         
-        {/* Left Panel: Create Campaign OR Manage SMTP Accounts */}
-        <div className="lg:col-span-5 space-y-6">
-          
-          {/* Tab Selector */}
-          <div className="grid grid-cols-2 gap-2 p-1.5 bg-bg-card border border-border-main rounded-2xl shadow-md transition-all duration-200">
-            <button
-              onClick={() => setActiveTab('compose')}
-              type="button"
-              className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                activeTab === 'compose'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-text-dimmed hover:text-text-muted'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              Compose Campaign
-            </button>
-            <button
-              onClick={() => setActiveTab('smtp')}
-              type="button"
-              className={`py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                activeTab === 'smtp'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-text-dimmed hover:text-text-muted'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              SMTP Tunnels
-            </button>
-          </div>
-
-          {activeTab === 'compose' ? (
-            <div className="bg-bg-card border border-border-main rounded-2xl p-6 shadow-xl transition-all duration-200">
-              <h2 className="text-xl font-bold mb-4 text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
-                <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Compose Campaign
-              </h2>
-
-              {formError && (
-                <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-300 text-xs break-words">
-                  {formError}
-                </div>
-              )}
-              {formSuccess && (
-                <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-300 text-xs">
-                  {formSuccess}
-                </div>
-              )}
-
-              <form onSubmit={handleCreateCampaign} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-text-dimmed mb-1.5 uppercase tracking-wide">Sending Account</label>
-                  {loadingSmtp ? (
-                    <div className="h-10 bg-bg-input border border-border-main rounded-lg animate-pulse flex items-center px-3 text-xs text-text-dimmed">
-                      Loading accounts...
-                    </div>
-                  ) : smtpAccounts.length === 0 ? (
-                    <div className="p-3 bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-300 text-xs rounded-lg">
-                      No active & verified SMTP accounts found. Please configure an SMTP account in the 'SMTP Tunnels' tab first.
-                    </div>
-                  ) : (
-                    <select
-                      value={selectedSmtpId}
-                      onChange={(e) => setSelectedSmtpId(e.target.value)}
-                      required
-                      className="w-full px-4 py-2.5 bg-bg-input border border-border-main rounded-lg text-text-main focus:outline-none focus:border-border-focus text-sm transition-all"
-                    >
-                      {smtpAccounts.map((acc) => (
-                        <option key={acc.id} value={acc.id} className="bg-bg-dropdown text-text-main">
-                          {acc.label} ({acc.from_email})
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-text-dimmed mb-1.5 uppercase tracking-wide">Subject Line</label>
-                  <input
-                    type="text"
-                    required
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="E.g. Exciting updates for Q3!"
-                    className="w-full px-4 py-2.5 bg-bg-input border border-border-main rounded-lg text-text-main placeholder-slate-400 focus:outline-none focus:border-border-focus text-sm transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-text-dimmed mb-1.5 uppercase tracking-wide">Email Body (Text / HTML)</label>
-                  <textarea
-                    required
-                    rows={8}
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    placeholder="Write your email body copy here..."
-                    className="w-full px-4 py-2.5 bg-bg-input border border-border-main rounded-lg text-text-main placeholder-slate-400 focus:outline-none focus:border-border-focus text-sm transition-all resize-y"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-text-dimmed mb-2 uppercase tracking-wide">Recipients Selection</label>
-                  
-                  {/* Mode Toggles */}
-                  <div className="grid grid-cols-2 gap-2 mb-3 bg-bg-toggle-track p-1 rounded-lg border border-border-main">
-                    <button
-                      type="button"
-                      onClick={() => setRecipientMode('excel')}
-                      className={`py-1.5 text-xs font-semibold rounded-md transition-all ${
-                        recipientMode === 'excel'
-                          ? 'bg-indigo-600 text-white shadow-sm'
-                          : 'text-text-dimmed hover:text-text-muted'
-                      }`}
-                    >
-                      Excel Upload
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRecipientMode('manual')}
-                      className={`py-1.5 text-xs font-semibold rounded-md transition-all ${
-                        recipientMode === 'manual'
-                          ? 'bg-indigo-600 text-white shadow-sm'
-                          : 'text-text-dimmed hover:text-text-muted'
-                      }`}
-                    >
-                      Manual Typing
-                    </button>
-                  </div>
-
-                  {recipientMode === 'excel' ? (
-                    <div
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all ${
-                        dragOver
-                          ? 'border-indigo-500 bg-indigo-500/5'
-                          : file
-                          ? 'border-emerald-500/50 bg-emerald-500/5'
-                          : 'border-border-dropzone hover:border-border-dropzone-hover bg-bg-dropzone'
-                      }`}
-                    >
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                        className="hidden"
-                      />
-                      
-                      {file ? (
-                        <div className="space-y-1 text-emerald-500 dark:text-emerald-400">
-                          <svg className="w-8 h-8 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <p className="text-sm font-semibold truncate max-w-xs mx-auto">{file.name}</p>
-                          <p className="text-xs text-text-dimmed">{(file.size / 1024).toFixed(1)} KB - Click to replace</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5 text-text-dimmed">
-                          <svg className="w-8 h-8 mx-auto text-slate-400 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                          </svg>
-                          <p className="text-sm font-medium"><span className="text-indigo-600 dark:text-indigo-300 font-semibold hover:underline">Upload a file</span> or drag & drop</p>
-                          <p className="text-xs text-text-dimmed">Supports .xlsx or .xls files containing email columns</p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <textarea
-                        rows={5}
-                        value={manualEmails}
-                        onChange={(e) => setManualEmails(e.target.value)}
-                        placeholder="Type or paste emails here (separated by commas, spaces, or new lines)&#10;E.g. user1@example.com, user2@example.com"
-                        className="w-full px-4 py-2.5 bg-bg-input border border-border-main rounded-lg text-text-main placeholder-slate-400 focus:outline-none focus:border-border-focus text-sm transition-all resize-y"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={formLoading || smtpAccounts.length === 0}
-                  className="w-full mt-2 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium rounded-lg text-sm transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shadow-md shadow-indigo-500/10"
-                >
-                  {formLoading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Importing Clients & Creating...
-                    </>
-                  ) : (
-                    'Create Campaign'
-                  )}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="bg-bg-card border border-border-main rounded-2xl p-6 shadow-xl transition-all duration-200 space-y-6">
+        {/* ========================================================================= */}
+        {/* 1. DASHBOARD VIEW */}
+        {/* ========================================================================= */}
+        <div className="space-y-8 animate-fadeIn">
+            {/* Header section */}
+            <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Operational Overview</h1>
+                <p className="text-slate-500 text-sm mt-1.5">Manage your high-volume mail infrastructure and active campaigns.</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <Link
+                  href="/dashboard/smtp-tunnels"
+                  className="inline-flex items-center px-4.5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl transition-all cursor-pointer space-x-2"
+                >
+                  <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                   </svg>
-                  Add SMTP Tunnel
-                </h2>
-                <p className="text-xs text-text-dimmed mt-1">Configure and verify a new custom SMTP server for bulk sending.</p>
+                  <span>Add SMTP Tunnel</span>
+                </Link>
+                <Link
+                  href="/dashboard/create-campaign"
+                  className="inline-flex items-center px-4.5 py-2.5 bg-[#5038ED] hover:bg-[#402bd6] text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-500/10 hover:shadow-lg transition-all cursor-pointer space-x-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>Create Campaign</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* KPI Metrics row */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {/* Card 1 */}
+              <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Mails Sent</span>
+                  <div className="flex items-baseline mt-2">
+                    <span className="text-3xl font-extrabold text-slate-900">
+                      {loadingStats ? (
+                        <span className="text-slate-300">...</span>
+                      ) : stats?.summary ? (
+                        stats.summary.totalSentCount > 1000 
+                          ? `${(stats.summary.totalSentCount/1000).toFixed(1)}k` 
+                          : stats.summary.totalSentCount
+                      ) : (
+                        totalSentCount
+                      )}
+                    </span>
+                    {!loadingStats && stats?.summary && (
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ml-3 inline-flex items-center ${
+                        stats.summary.sentTrend.startsWith('-') 
+                          ? 'text-rose-600 bg-rose-50' 
+                          : 'text-emerald-600 bg-emerald-50'
+                      }`}>
+                        <svg className={`w-2.5 h-2.5 mr-0.5 ${stats.summary.sentTrend.startsWith('-') ? 'transform rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                        </svg>
+                        {stats.summary.sentTrend}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {smtpFormError && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-300 text-xs break-words">
-                  {smtpFormError}
+              {/* Card 2 */}
+              <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Delivery Rate</span>
+                  <div className="flex items-baseline mt-2">
+                    <span className="text-3xl font-extrabold text-slate-900">
+                      {loadingStats ? (
+                        <span className="text-slate-300">...</span>
+                      ) : stats?.summary ? (
+                        stats.summary.deliveryRate
+                      ) : (
+                        '100.0%'
+                      )}
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full ml-3 inline-flex items-center">
+                      Dynamic
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 3 */}
+              <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tunnel Health</span>
+                  <div className="flex items-baseline mt-2">
+                    <span className="text-3xl font-extrabold text-slate-900">
+                      {loadingStats ? (
+                        <span className="text-slate-300">...</span>
+                      ) : stats?.summary ? (
+                        stats.summary.tunnelHealth
+                      ) : (
+                        '0%'
+                      )}
+                    </span>
+                    <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ml-3 ${
+                      stats?.summary && stats.summary.tunnelHealth === '100%' 
+                        ? 'text-emerald-700 bg-emerald-50' 
+                        : stats?.summary && stats.summary.tunnelHealth !== '0%'
+                        ? 'text-amber-700 bg-amber-50'
+                        : 'text-rose-700 bg-rose-50'
+                    }`}>
+                      {stats?.summary && stats.summary.tunnelHealth === '100%' ? 'Stable' : 'Optimal'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4 */}
+              <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SMTP Active</span>
+                  <div className="flex items-baseline mt-2">
+                    <span className="text-3xl font-extrabold text-slate-900">{activeSmtpCount} <span className="text-lg text-slate-400 font-normal">/ {totalSmtpCount}</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Your Campaigns Table section */}
+            <div id="your-campaigns-section" className="bg-white border border-slate-200/60 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-lg font-bold text-slate-900">Your Campaigns</h2>
+                <div className="flex items-center space-x-3">
+                  {/* Search Bar */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search campaigns..."
+                      value={campaignSearchTerm}
+                      onChange={(e) => { setCampaignSearchTerm(e.target.value); setCampaignPage(1); }}
+                      className="pl-9 pr-4 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all w-56"
+                    />
+                    <svg className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  {/* Action buttons icon */}
+                  <button className="p-1.5 border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-500 cursor-pointer">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                  </button>
+                  <button className="p-1.5 border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-500 cursor-pointer">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {loadingCampaigns ? (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-400">
+                  <svg className="animate-spin h-7 w-7 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="text-xs">Loading campaign directory...</span>
+                </div>
+              ) : paginatedCampaigns.length === 0 ? (
+                <div className="py-16 text-center border-t border-slate-100 p-6 flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 mb-3">
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="font-bold text-slate-800 text-sm">No Campaigns Configured</h3>
+                  <p className="text-slate-400 text-xs mt-1 max-w-sm">Create your first bulk campaign by clicking "+ Compose Campaign" above.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs md:text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px] bg-slate-50/50">
+                        <th className="py-4 px-6">Subject</th>
+                        <th className="py-4 px-6">SMTP Account</th>
+                        <th className="py-4 px-6">Recipients</th>
+                        <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6">Date Created</th>
+                        <th className="py-4 px-6 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedCampaigns.map((camp) => (
+                        <tr key={camp.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="py-4 px-6 font-semibold text-slate-900 max-w-[200px] truncate">
+                            {camp.subject}
+                          </td>
+                          <td className="py-4 px-6 text-slate-500 font-medium">
+                            {camp.smtp_label || <span className="text-slate-300 italic font-normal">None</span>}
+                          </td>
+                          <td className="py-4 px-6 text-slate-600 font-mono">
+                            {camp.client_count.toLocaleString()}
+                          </td>
+                           <td className="py-4 px-6">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase inline-block ${
+                                camp.status === 'completed'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : camp.status === 'processing'
+                                  ? 'bg-[#F3E8FF] text-[#6B21A8]'
+                                  : camp.status === 'queued'
+                                  ? 'bg-amber-50 text-amber-700 animate-pulse'
+                                  : camp.status === 'failed'
+                                  ? 'bg-rose-50 text-rose-600'
+                                  : camp.status === 'paused'
+                                  ? 'bg-slate-100 text-slate-500'
+                                  : 'bg-slate-50 text-slate-400'
+                              }`}
+                            >
+                              {camp.status === 'completed' && 'Completed'}
+                              {camp.status === 'processing' && `Processing (${(camp.sent_count || 0) + (camp.failed_count || 0)} / ${camp.client_count})`}
+                              {camp.status === 'queued' && 'Queued'}
+                              {camp.status === 'failed' && 'Failed'}
+                              {camp.status === 'paused' && 'Paused'}
+                              {camp.status === 'draft' && 'Draft'}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-slate-400">
+                            {new Date(camp.created_at).toLocaleDateString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </td>
+                          <td className="py-4 px-6 text-right">
+                            <Link
+                              href={`/dashboard/campaigns/${camp.id}`}
+                              className="inline-flex items-center px-3 py-1.5 bg-slate-50 group-hover:bg-[#5038ED] group-hover:text-white border border-slate-200 group-hover:border-[#5038ED] text-slate-700 text-xs font-semibold rounded-lg transition-all"
+                            >
+                              Manage
+                              <svg className="w-3 h-3 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                              </svg>
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  {/* Table Pagination footer */}
+                  <div className="p-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 bg-slate-50/20">
+                    <span>Showing {(campaignPage - 1) * campaignsPerPage + 1} to {Math.min(campaignPage * campaignsPerPage, filteredCampaigns.length)} of {filteredCampaigns.length} campaigns</span>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        disabled={campaignPage === 1}
+                        onClick={() => setCampaignPage(prev => Math.max(prev - 1, 1))}
+                        className="px-3 py-1 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg font-medium transition-colors cursor-pointer"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        disabled={campaignPage === totalCampaignPages}
+                        onClick={() => setCampaignPage(prev => Math.min(prev + 1, totalCampaignPages))}
+                        className="px-3 py-1 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg font-medium transition-colors cursor-pointer"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
-              {smtpFormSuccess && (
-                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-300 text-xs">
-                  {smtpFormSuccess}
-                </div>
-              )}
+            </div>
 
-              <form onSubmit={handleAddSmtp} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-semibold text-text-dimmed uppercase tracking-wider mb-1.5">Account Label</label>
-                    <input
-                      type="text"
-                      required
-                      value={smtpLabel}
-                      onChange={(e) => setSmtpLabel(e.target.value)}
-                      placeholder="e.g. Sales SMTP"
-                      className="w-full px-3 py-2 bg-bg-input border border-border-main rounded-lg text-text-main text-xs focus:outline-none focus:border-border-focus transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold text-text-dimmed uppercase tracking-wider mb-1.5">From Email</label>
-                    <input
-                      type="email"
-                      required
-                      value={smtpFromEmail}
-                      onChange={(e) => setSmtpFromEmail(e.target.value)}
-                      placeholder="sales@company.com"
-                      className="w-full px-3 py-2 bg-bg-input border border-border-main rounded-lg text-text-main text-xs focus:outline-none focus:border-border-focus transition-all"
-                    />
-                  </div>
+            {/* Bottom Section: Delivery Performance & SMTP Tunnel Status */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
+              {/* Column 1: Delivery Performance (Bar Chart) */}
+              <div className="lg:col-span-7 bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Delivery Performance</h2>
+                  <p className="text-slate-400 text-xs mt-0.5">Real-time throughput logs and nodes performance analytics.</p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-semibold text-text-dimmed uppercase tracking-wider mb-1.5">SMTP Host / IP</label>
-                    <input
-                      type="text"
-                      required
-                      value={smtpHost}
-                      onChange={(e) => setSmtpHost(e.target.value)}
-                      placeholder="e.g. 192.168.1.100"
-                      className="w-full px-3 py-2 bg-bg-input border border-border-main rounded-lg text-text-main text-xs focus:outline-none focus:border-border-focus transition-all"
-                    />
+                {loadingStats ? (
+                  <div className="py-12 flex flex-col items-center justify-center text-slate-400">
+                    <svg className="animate-spin h-7 w-7 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <span className="text-xs">Loading performance data...</span>
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold text-text-dimmed uppercase tracking-wider mb-1.5">Port</label>
-                    <input
-                      type="text"
-                      required
-                      value={smtpPort}
-                      onChange={(e) => setSmtpPort(e.target.value)}
-                      placeholder="587"
-                      className="w-full px-3 py-2 bg-bg-input border border-border-main rounded-lg text-text-main text-xs focus:outline-none focus:border-border-focus transition-all"
-                    />
+                ) : !stats ? (
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    Failed to load performance metrics
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-semibold text-text-dimmed uppercase tracking-wider mb-1.5">SMTP User / Username</label>
-                    <input
-                      type="text"
-                      required
-                      value={smtpUsername}
-                      onChange={(e) => setSmtpUsername(e.target.value)}
-                      placeholder="e.g. sales@company.com"
-                      className="w-full px-3 py-2 bg-bg-input border border-border-main rounded-lg text-text-main text-xs focus:outline-none focus:border-border-focus transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold text-text-dimmed uppercase tracking-wider mb-1.5">SMTP Password</label>
-                    <input
-                      type="password"
-                      required
-                      value={smtpPassword}
-                      onChange={(e) => setSmtpPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-3 py-2 bg-bg-input border border-border-main rounded-lg text-text-main text-xs focus:outline-none focus:border-border-focus transition-all"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={smtpVerifyLoading}
-                  className="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold rounded-lg text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shadow-md shadow-indigo-500/10"
-                >
-                  {smtpVerifyLoading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Verifying Connection...
-                    </>
-                  ) : (
-                    'Verify SMTP & Register Account'
-                  )}
-                </button>
-              </form>
-
-              {/* List of Registered Accounts */}
-              <div className="border-t border-border-main pt-4 space-y-3">
-                <h3 className="text-[10px] font-bold text-text-dimmed uppercase tracking-wider">Registered SMTP Tunnels ({allSmtpAccounts.length})</h3>
-                {allSmtpAccounts.length === 0 ? (
-                  <p className="text-xs text-text-dimmed italic">No custom SMTP tunnels registered yet.</p>
                 ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {allSmtpAccounts.map((acc) => (
-                      <div key={acc.id} className="flex items-center justify-between p-2.5 bg-bg-input border border-border-main rounded-lg text-xs transition-all hover:border-indigo-500/20">
-                        <div className="truncate max-w-[70%]">
-                          <p className="font-semibold text-text-main truncate">{acc.label}</p>
-                          <p className="text-[10px] text-text-dimmed truncate">{acc.from_email}</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
-                            acc.is_verified ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                          }`}>
-                            {acc.is_verified ? 'Verified' : 'Unverified'}
-                          </span>
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
-                            acc.is_active ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' : 'bg-slate-100 dark:bg-slate-800 text-text-dimmed border border-border-main'
-                          }`}>
-                            {acc.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-6 items-center">
+                    {/* CSS Bar Chart */}
+                    <div className="md:col-span-8 flex items-end justify-between h-36 px-4 pt-4 relative">
+                      {/* Grid lines */}
+                      <div className="absolute inset-x-0 bottom-4 border-b border-slate-100"></div>
+                      <div className="absolute inset-x-0 bottom-16 border-b border-slate-100"></div>
+                      <div className="absolute inset-x-0 bottom-28 border-b border-slate-100"></div>
+                      
+                      {stats.deliveryPerformance.chart.map((dayData, idx) => {
+                        const maxVal = Math.max(...stats.deliveryPerformance.chart.map(c => c.count), 1);
+                        const heightPct = dayData.count > 0 
+                          ? Math.max(10, Math.round((dayData.count / maxVal) * 100))
+                          : 4;
+                        return (
+                          <div key={idx} className="flex flex-col items-center z-10 w-[10%] group h-full justify-end">
+                            <div className="w-full flex-1 flex items-end mb-2 h-24">
+                              <div 
+                                style={{ height: `${heightPct}%` }}
+                                className="w-full bg-[#5038ED] rounded-md transition-all duration-300 ease-out group-hover:-translate-y-1 group-hover:scale-y-[1.03] relative min-h-[4px] cursor-pointer shadow-sm hover:shadow-md"
+                              >
+                                <span className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-950 text-white text-[10px] py-1 px-2 rounded font-semibold whitespace-nowrap z-20 transition-opacity">
+                                  {dayData.count.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-semibold">{dayData.day}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Metrics details */}
+                    <div className="md:col-span-4 space-y-4 border-l border-slate-100 pl-6 h-full flex flex-col justify-center">
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Peak Time</span>
+                        <p className="text-sm font-bold text-slate-800 mt-0.5">{stats.deliveryPerformance.peakTime}</p>
                       </div>
-                    ))}
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Top Target</span>
+                        <p className="text-sm font-bold text-slate-800 mt-0.5 truncate max-w-[120px]" title={stats.deliveryPerformance.topRegion}>
+                          {stats.deliveryPerformance.topRegion}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Failure Rate</span>
+                        <p className={`text-sm font-bold mt-0.5 ${stats.deliveryPerformance.bounceRate === '0.00%' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {stats.deliveryPerformance.bounceRate}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
-            </div>
-          )}
-        </div>
 
-        {/* Right Section: Campaign History */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="bg-bg-card border border-border-main rounded-2xl p-6 shadow-xl flex-1 flex flex-col transition-all duration-200">
-            <h2 className="text-xl font-bold mb-4 text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
-              <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l8-5.333a2 2 0 012.22 0l8 5.333A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" />
-              </svg>
-              Your Campaigns
-            </h2>
-
-            {loadingCampaigns ? (
-              <div className="flex-1 py-20 flex flex-col items-center justify-center space-y-2 text-text-dimmed">
-                <svg className="animate-spin h-6 w-6 text-slate-400 dark:text-slate-700" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <span className="text-xs">Loading campaign list...</span>
-              </div>
-            ) : campaigns.length === 0 ? (
-              <div className="flex-1 py-20 border border-dashed border-border-main rounded-xl flex flex-col items-center justify-center text-center p-6">
-                <div className="w-12 h-12 bg-slate-100 dark:bg-slate-950/80 rounded-full flex items-center justify-center mb-3">
-                  <svg className="w-6 h-6 text-text-dimmed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-text-main">No campaigns yet</h3>
-                <p className="text-text-dimmed text-xs mt-1 max-w-sm">Use the composer on the left to upload your Excel sheet and format your first bulk mailing campaign.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs md:text-sm">
-                  <thead>
-                    <tr className="border-b border-border-main text-text-dimmed font-medium">
-                      <th className="pb-3 pr-2">Subject</th>
-                      <th className="pb-3 px-2">Sending Account</th>
-                      <th className="pb-3 px-2">Recipients</th>
-                      <th className="pb-3 px-2">Status</th>
-                      <th className="pb-3 px-2">Date Created</th>
-                      <th className="pb-3 text-right pl-2">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-900/60">
-                    {campaigns.map((camp) => (
-                      <tr key={camp.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-all">
-                        <td className="py-4 pr-2 font-semibold text-text-main max-w-[140px] truncate">
-                          {camp.subject}
-                        </td>
-                        <td className="py-4 px-2 text-text-muted font-semibold max-w-[140px] truncate">
-                          {camp.smtp_label || (
-                            <span className="text-text-dimmed font-normal italic">None</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-2 text-text-muted font-mono">
-                          {camp.client_count}
-                        </td>
-                        <td className="py-4 px-2">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                              camp.status === 'executed'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                                : camp.status === 'testing'
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/50'
-                            }`}
-                          >
-                            {camp.status}
+              {/* Column 2: SMTP Tunnel Status Card (Purple background) */}
+              <div className="lg:col-span-5 bg-[#5038ED] rounded-2xl p-6 text-white shadow-lg shadow-indigo-500/10 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-lg font-bold">SMTP Tunnel Status</h3>
+                  
+                  {/* Status rows */}
+                  <div className="mt-5 space-y-3">
+                    {loadingStats ? (
+                      <div className="py-6 flex flex-col items-center justify-center text-white/60">
+                        <svg className="animate-spin h-5 w-5 text-white/40 mb-2" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span className="text-[10px]">Loading status...</span>
+                      </div>
+                    ) : !stats || stats.smtpTunnels.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-white/60">
+                        No SMTP Tunnels configured
+                      </div>
+                    ) : (
+                      stats.smtpTunnels.slice(0, 3).map((tunnel, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-white/10 rounded-xl">
+                          <span className="text-xs font-semibold truncate max-w-[160px]" title={tunnel.label}>
+                            {tunnel.label}
                           </span>
-                        </td>
-                        <td className="py-4 px-2 text-text-dimmed">
-                          {new Date(camp.created_at).toLocaleDateString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            year: '2-digit',
-                          })}
-                        </td>
-                        <td className="py-4 text-right pl-2">
-                          <Link
-                            href={`/dashboard/campaigns/${camp.id}`}
-                            className="inline-flex items-center px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-lg transition-all"
-                          >
-                            Manage
-                            <svg className="w-3.5 h-3.5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+                          <span className={`inline-flex items-center text-[10px] font-bold ${
+                            tunnel.status === 'Healthy' 
+                              ? 'text-emerald-300' 
+                              : tunnel.status === 'Idle'
+                              ? 'text-slate-300'
+                              : 'text-rose-300'
+                          }`}>
+                            {tunnel.status === 'Healthy' && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 mr-1.5 animate-pulse" />
+                            )}
+                            {tunnel.status}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
 
+                <Link
+                  href="/dashboard/smtp-tunnels"
+                  className="w-full mt-6 py-2.5 bg-white text-[#5038ED] hover:bg-slate-50 transition-colors text-xs font-bold rounded-xl cursor-pointer text-center block"
+                >
+                  Review Tunnel Configuration
+                </Link>
+              </div>
+
+            </div>
+          </div>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-200/60 bg-white py-6 px-8 mt-12 text-xs text-slate-400 flex flex-col md:flex-row items-center justify-between">
+        <span>&copy; 2026 Queuvo.</span>
+      </footer>
     </div>
   );
 }

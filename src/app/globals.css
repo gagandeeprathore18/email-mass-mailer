@@ -1,42 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 :root {
-  --bg-main: #f8fafc; /* slate-50 */
-  --bg-card: #ffffff; /* white */
+  --bg-main: #f5f7fb;
+  --bg-card: #ffffff;
   --bg-input: #ffffff;
-  --text-main: #0f172a; /* slate-900 */
-  --text-muted: #334155; /* slate-700 */
-  --text-dimmed: #64748b; /* slate-500 */
-  --border-main: #e2e8f0; /* slate-200 */
-  --border-focus: #6366f1; /* indigo-500 */
+  --text-main: #0f172a;
+  --text-muted: #334155;
+  --text-dimmed: #64748b;
+  --border-main: #e2e8f0;
+  --border-focus: #5038ED;
   --bg-nav: rgba(255, 255, 255, 0.8);
   --bg-dropdown: #ffffff;
 
   /* Recipients Selection section specific variables */
-  --bg-toggle-track: #f1f5f9; /* slate-100 */
-  --bg-dropzone: #f8fafc; /* slate-50 */
-  --border-dropzone: #cbd5e1; /* slate-300 */
-  --border-dropzone-hover: #94a3b8; /* slate-400 */
-}
-
-/* Dark mode values applied via .dark class */
-.dark {
-  --bg-main: #020617; /* slate-950 */
-  --bg-card: rgba(15, 23, 42, 0.4); /* slate-900/40 */
-  --bg-input: rgba(2, 6, 23, 0.4); /* slate-950/40 */
-  --text-main: #f1f5f9; /* slate-100 */
-  --text-muted: #cbd5e1; /* slate-300 */
-  --text-dimmed: #94a3b8; /* slate-400 */
-  --border-main: #1e293b; /* slate-800 */
-  --border-focus: #6366f1; /* indigo-500 */
-  --bg-nav: rgba(2, 6, 23, 0.8); /* slate-950/80 */
-  --bg-dropdown: #090d16;
-
-  /* Recipients Selection section specific variables */
-  --bg-toggle-track: rgba(2, 6, 23, 0.6); /* slate-950/60 */
-  --bg-dropzone: rgba(2, 6, 23, 0.2); /* slate-950/20 */
-  --border-dropzone: #1e293b; /* slate-800 */
-  --border-dropzone-hover: #334155; /* slate-700 */
+  --bg-toggle-track: #f1f5f9;
+  --bg-dropzone: #f8fafc;
+  --border-dropzone: #cbd5e1;
+  --border-dropzone-hover: #94a3b8;
 }
 
 @theme inline {
@@ -60,6 +41,6 @@
 body {
   background: var(--bg-main);
   color: var(--text-main);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   transition: background-color 0.2s ease, color 0.2s ease;
 }

@@ -1,21 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import db from '@/lib/db';
-import { verifySmtpConnection, createTransporter } from '@/lib/smtp';
-import { decryptPassword } from '@/lib/encryption';
 import { RowDataPacket } from 'mysql2/promise';
-
-interface SmtpAccountRow extends RowDataPacket {
-  id: number;
-  user_id: number;
-  host: string;
-  port: number;
-  username: string;
-  encrypted_password: string;
-  from_email: string;
-  is_active: number | boolean;
-  is_verified: number | boolean;
-}
 
 interface CampaignRow extends RowDataPacket {
   id: number;
@@ -23,6 +9,11 @@ interface CampaignRow extends RowDataPacket {
   body: string;
   status: string;
   smtp_account_id: number | null;
+}
+
+interface SmtpAccountCheck extends RowDataPacket {
+  id: number;
+  user_id: number;
 }
 
 interface ClientRow extends RowDataPacket {
@@ -61,17 +52,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Verify test send was done (status should be 'testing')
-    if (campaign.status !== 'testing') {
-      return NextResponse.json(
-        { error: 'You must successfully run a test send before executing bulk dispatch.' },
-        { status: 400 }
-      );
-    }
-
-    // 2. Fetch specific SMTP configuration from smtp_accounts table
-    const [smtpAccounts] = await db.query<SmtpAccountRow[]>(
-      'SELECT id, user_id, host, port, username, encrypted_password, from_email, is_active, is_verified FROM smtp_accounts WHERE id = ?',
+    // 2. Fetch specific SMTP configuration from smtp_accounts table to verify it exists and belongs to the user
+    const [smtpAccounts] = await db.query<SmtpAccountCheck[]>(
+      'SELECT id, user_id FROM smtp_accounts WHERE id = ?',
       [campaign.smtp_account_id]
     );
 
@@ -85,113 +68,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized to use this SMTP account' }, { status: 403 });
     }
 
-    // Verify active & verified status
-    if (!smtp.is_active) {
-      return NextResponse.json({ error: 'SMTP account is inactive' }, { status: 400 });
-    }
-
-    if (!smtp.is_verified) {
-      return NextResponse.json({ error: 'SMTP account is not verified' }, { status: 400 });
-    }
-
-    // 3. Fetch all pending clients
+    // 3. Fetch count of pending/failed clients to ensure there is work to do
     const [clients] = await db.query<ClientRow[]>(
-      "SELECT id, email FROM Clients WHERE campaign_id = ? AND status = 'pending'",
+      "SELECT id FROM Clients WHERE campaign_id = ? AND status IN ('pending', 'failed')",
       [campaignId]
     );
 
     if (clients.length === 0) {
       return NextResponse.json(
-        { error: 'No pending recipients found for this campaign.' },
+        { error: 'No pending or failed recipients found for this campaign.' },
         { status: 400 }
       );
     }
 
-    // 4. Trigger bulk send in background
-    runBulkSendBackground(campaignId, smtp, clients, campaign.subject, campaign.body);
+    // Reset failed clients to pending so they are retried, and set status to queued
+    await db.query(
+      "UPDATE Clients SET status = 'pending' WHERE campaign_id = ? AND status = 'failed'",
+      [campaignId]
+    );
+
+    await db.query(
+      "UPDATE Campaigns SET status = 'queued', sent_count = 0, failed_count = 0, started_at = NULL, completed_at = NULL WHERE id = ?",
+      [campaignId]
+    );
 
     return NextResponse.json({
       success: true,
-      message: 'Bulk mailing execution started.',
-      totalPending: clients.length,
+      message: 'Campaign queued successfully',
     });
   } catch (error) {
     console.error('Execute Send API error:', error);
-    return NextResponse.json({ error: 'Failed to initiate bulk sending' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to queue campaign' }, { status: 500 });
   }
 }
 
-// Background executor
-async function runBulkSendBackground(
-  campaignId: number,
-  smtp: SmtpAccountRow,
-  clients: ClientRow[],
-  subject: string,
-  body: string
-) {
-  console.log(`Starting background bulk send for campaign ${campaignId} with ${clients.length} recipients.`);
-  
-  // Determine if we need to bypass TLS certificate validation for this mail server
-  let rejectUnauthorized = true;
-  try {
-    const passDecrypted = decryptPassword(smtp.encrypted_password);
-    const verification = await verifySmtpConnection({
-      host: smtp.host,
-      port: smtp.port,
-      user: smtp.username,
-      pass: passDecrypted,
-    });
-    rejectUnauthorized = verification.rejectUnauthorized;
-  } catch (verifyErr) {
-    console.error('SMTP connection pre-check failed during bulk dispatch:', verifyErr);
-    // Default to relaxed TLS validation if connection fails on certificate mismatch
-    rejectUnauthorized = false;
-  }
-
-  const transporter = createTransporter(
-    {
-      host: smtp.host,
-      port: smtp.port,
-      username: smtp.username,
-      encrypted_password: smtp.encrypted_password,
-    },
-    {
-      rejectUnauthorized,
-      pool: true,
-    }
-  );
-
-  const isHtml = body.includes('<') && body.includes('>');
-
-  for (const client of clients) {
-    try {
-      await transporter.sendMail({
-        from: `"${smtp.from_email}" <${smtp.from_email}>`,
-        to: client.email,
-        subject: subject,
-        text: isHtml ? undefined : body,
-        html: isHtml ? body : undefined,
-      });
-
-      // Update client status in DB to 'sent'
-      await db.query('UPDATE Clients SET status = ? WHERE id = ?', ['sent', client.id]);
-    } catch (err) {
-      console.error(`Failed to send email to ${client.email}:`, err);
-      // Update client status in DB to 'failed'
-      await db.query('UPDATE Clients SET status = ? WHERE id = ?', ['failed', client.id]);
-    }
-
-    // 300ms throttling between sends
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-
-  // Mark campaign status as 'executed'
-  try {
-    await db.query("UPDATE Campaigns SET status = 'executed' WHERE id = ?", [campaignId]);
-    console.log(`Finished background bulk send for campaign ${campaignId}.`);
-  } catch (dbErr) {
-    console.error('Failed to update campaign status to executed:', dbErr);
-  } finally {
-    transporter.close();
-  }
-}

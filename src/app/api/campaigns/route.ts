@@ -8,10 +8,12 @@ interface CampaignRow extends RowDataPacket {
   id: number;
   subject: string;
   body: string;
-  status: 'draft' | 'testing' | 'executed';
+  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused';
   created_at: Date;
   client_count: number;
   smtp_label?: string | null;
+  sent_count: number;
+  failed_count: number;
 }
 
 export async function GET() {
@@ -22,12 +24,12 @@ export async function GET() {
     }
 
     const [campaigns] = await db.query<CampaignRow[]>(
-      `SELECT c.id, c.subject, c.body, c.status, c.created_at, COUNT(cl.id) as client_count, sa.label as smtp_label 
+      `SELECT c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, COUNT(cl.id) as client_count, sa.label as smtp_label 
        FROM Campaigns c 
        LEFT JOIN Clients cl ON c.id = cl.campaign_id 
        LEFT JOIN smtp_accounts sa ON c.smtp_account_id = sa.id
        WHERE c.user_id = ? 
-       GROUP BY c.id, c.subject, c.body, c.status, c.created_at, sa.label 
+       GROUP BY c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, sa.label 
        ORDER BY c.created_at DESC`,
       [user.id]
     );

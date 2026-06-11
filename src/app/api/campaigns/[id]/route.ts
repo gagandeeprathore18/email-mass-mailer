@@ -7,11 +7,15 @@ interface CampaignDetail extends RowDataPacket {
   id: number;
   subject: string;
   body: string;
-  status: 'draft' | 'testing' | 'executed';
+  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused';
   created_at: Date;
   smtp_account_id?: number | null;
   smtp_label?: string | null;
   smtp_from_email?: string | null;
+  sent_count: number;
+  failed_count: number;
+  started_at?: Date | null;
+  completed_at?: Date | null;
 }
 
 interface ClientSummary extends RowDataPacket {
@@ -38,6 +42,7 @@ export async function GET(
     // Fetch the campaign belonging to current user with sending account label/email
     const [campaigns] = await db.query<CampaignDetail[]>(
       `SELECT c.id, c.subject, c.body, c.status, c.created_at, c.smtp_account_id,
+              c.sent_count, c.failed_count, c.started_at, c.completed_at,
               sa.label as smtp_label, sa.from_email as smtp_from_email
        FROM Campaigns c
        LEFT JOIN smtp_accounts sa ON c.smtp_account_id = sa.id
@@ -89,9 +94,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid campaign ID' }, { status: 400 });
     }
 
-    const { body } = await request.json();
-    if (body === undefined || body === null) {
-      return NextResponse.json({ error: 'Body content is required.' }, { status: 400 });
+    const { subject, body } = await request.json();
+    if ((subject === undefined || subject === null) && (body === undefined || body === null)) {
+      return NextResponse.json({ error: 'Subject or body content is required.' }, { status: 400 });
     }
 
     // Verify ownership and execution status
@@ -105,14 +110,37 @@ export async function PATCH(
     }
 
     const campaign = campaigns[0];
-    if (campaign.status === 'executed') {
-      return NextResponse.json({ error: 'Cannot edit a campaign that has already been executed.' }, { status: 400 });
+    if (campaign.status === 'completed' || campaign.status === 'processing' || campaign.status === 'queued') {
+      return NextResponse.json({ error: 'Cannot edit a campaign that is queued, processing, or completed.' }, { status: 400 });
     }
 
-    // Update body and reset status to 'draft'
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (subject !== undefined && subject !== null) {
+      if (!subject.trim()) {
+        return NextResponse.json({ error: 'Subject cannot be empty.' }, { status: 400 });
+      }
+      updates.push('subject = ?');
+      params.push(subject.trim());
+    }
+
+    if (body !== undefined && body !== null) {
+      if (!body.trim()) {
+        return NextResponse.json({ error: 'Body cannot be empty.' }, { status: 400 });
+      }
+      updates.push('body = ?');
+      params.push(body);
+    }
+
+    // Always reset status to 'draft'
+    updates.push("status = 'draft'");
+    params.push(campaignId);
+
+    // Update campaign details
     await db.query(
-      "UPDATE Campaigns SET body = ?, status = 'draft' WHERE id = ?",
-      [body, campaignId]
+      `UPDATE Campaigns SET ${updates.join(', ')} WHERE id = ?`,
+      params
     );
 
     return NextResponse.json({
