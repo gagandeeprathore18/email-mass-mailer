@@ -2,14 +2,19 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import db from '@/lib/db';
 import { sendMailWithFallback } from '@/lib/smtp';
+import { decryptPassword } from '@/lib/encryption';
 import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
-interface UserSmtpRow extends RowDataPacket {
-  email: string;
-  smtp_host: string;
-  smtp_port: number;
-  smtp_email: string;
-  smtp_pass: string;
+interface SmtpAccountRow extends RowDataPacket {
+  id: number;
+  user_id: number;
+  host: string;
+  port: number;
+  username: string;
+  encrypted_password: string;
+  from_email: string;
+  is_active: number | boolean;
+  is_verified: number | boolean;
 }
 
 interface CampaignRow extends RowDataPacket {
@@ -17,6 +22,7 @@ interface CampaignRow extends RowDataPacket {
   subject: string;
   body: string;
   status: string;
+  smtp_account_id: number | null;
 }
 
 export async function POST(request: Request) {
@@ -31,20 +37,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Campaign ID is required' }, { status: 400 });
     }
 
-    // 1. Fetch user's SMTP configuration and account email
-    const [users] = await db.query<UserSmtpRow[]>(
-      'SELECT email, smtp_host, smtp_port, smtp_email, smtp_pass FROM Users WHERE id = ?',
-      [user.id]
-    );
-
-    if (users.length === 0) {
-      return NextResponse.json({ error: 'User SMTP settings not found' }, { status: 404 });
-    }
-    const smtpUser = users[0];
-
-    // 2. Fetch campaign details
+    // 1. Fetch campaign details
     const [campaigns] = await db.query<CampaignRow[]>(
-      'SELECT id, subject, body, status FROM Campaigns WHERE id = ? AND user_id = ?',
+      'SELECT id, subject, body, status, smtp_account_id FROM Campaigns WHERE id = ? AND user_id = ?',
       [campaignId, user.id]
     );
 
@@ -53,26 +48,68 @@ export async function POST(request: Request) {
     }
     const campaign = campaigns[0];
 
-    // 3. Send test email to user's registered login email with TLS/SSL fallback
+    if (!campaign.smtp_account_id) {
+      return NextResponse.json(
+        { error: 'Campaign has no sending account configured' },
+        { status: 400 }
+      );
+    }
+
+    // 2. Fetch specific SMTP configuration from smtp_accounts table
+    const [smtpAccounts] = await db.query<SmtpAccountRow[]>(
+      'SELECT id, user_id, host, port, username, encrypted_password, from_email, is_active, is_verified FROM smtp_accounts WHERE id = ?',
+      [campaign.smtp_account_id]
+    );
+
+    if (smtpAccounts.length === 0) {
+      return NextResponse.json({ error: 'SMTP account not found' }, { status: 404 });
+    }
+    const smtp = smtpAccounts[0];
+
+    // Verify SMTP account ownership, verification, and status
+    if (smtp.user_id !== user.id) {
+      return NextResponse.json({ error: 'Unauthorized to use this SMTP account' }, { status: 403 });
+    }
+
+    if (!smtp.is_active) {
+      return NextResponse.json({ error: 'SMTP account is inactive' }, { status: 400 });
+    }
+
+    if (!smtp.is_verified) {
+      return NextResponse.json({ error: 'SMTP account is not verified' }, { status: 400 });
+    }
+
+    // 3. Fetch user's registered login email to send the test email to
+    const [users] = await db.query<RowDataPacket[]>(
+      'SELECT email FROM Users WHERE id = ?',
+      [user.id]
+    );
+    if (users.length === 0) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    const userEmail = users[0].email;
+
+    // 4. Send test email to user's registered login email with TLS/SSL fallback
     const isHtml = campaign.body.includes('<') && campaign.body.includes('>');
+    const passDecrypted = decryptPassword(smtp.encrypted_password);
     
     await sendMailWithFallback(
       {
-        host: smtpUser.smtp_host,
-        port: smtpUser.smtp_port,
-        user: smtpUser.smtp_email,
-        pass: smtpUser.smtp_pass,
+        host: smtp.host,
+        port: smtp.port,
+        user: smtp.username,
+        pass: passDecrypted,
       },
       {
-        from: `"${smtpUser.smtp_email}" <${smtpUser.smtp_email}>`,
-        to: smtpUser.email,
+        from: `"${smtp.from_email}" <${smtp.from_email}>`,
+        to: userEmail,
         subject: `[TEST] ${campaign.subject}`,
         text: isHtml ? undefined : campaign.body,
         html: isHtml ? campaign.body : undefined,
       }
     );
 
-    // 4. Update campaign status to 'testing' if it was in 'draft'
+    // 5. Update campaign status to 'testing' if it was in 'draft'
     if (campaign.status === 'draft') {
       await db.query<ResultSetHeader>(
         "UPDATE Campaigns SET status = 'testing' WHERE id = ?",

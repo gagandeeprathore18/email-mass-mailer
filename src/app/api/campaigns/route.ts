@@ -11,6 +11,7 @@ interface CampaignRow extends RowDataPacket {
   status: 'draft' | 'testing' | 'executed';
   created_at: Date;
   client_count: number;
+  smtp_label?: string | null;
 }
 
 export async function GET() {
@@ -21,11 +22,12 @@ export async function GET() {
     }
 
     const [campaigns] = await db.query<CampaignRow[]>(
-      `SELECT c.id, c.subject, c.body, c.status, c.created_at, COUNT(cl.id) as client_count 
+      `SELECT c.id, c.subject, c.body, c.status, c.created_at, COUNT(cl.id) as client_count, sa.label as smtp_label 
        FROM Campaigns c 
        LEFT JOIN Clients cl ON c.id = cl.campaign_id 
+       LEFT JOIN smtp_accounts sa ON c.smtp_account_id = sa.id
        WHERE c.user_id = ? 
-       GROUP BY c.id, c.subject, c.body, c.status, c.created_at 
+       GROUP BY c.id, c.subject, c.body, c.status, c.created_at, sa.label 
        ORDER BY c.created_at DESC`,
       [user.id]
     );
@@ -49,9 +51,48 @@ export async function POST(request: Request) {
     const body = formData.get('body') as string;
     const file = formData.get('file') as File | null;
     const manualEmails = formData.get('manualEmails') as string | null;
+    const smtpAccountIdVal = formData.get('smtpAccountId') as string | null;
 
     if (!subject || !body) {
       return NextResponse.json({ error: 'Subject and body are required.' }, { status: 400 });
+    }
+
+    if (!smtpAccountIdVal) {
+      return NextResponse.json({ error: 'Sending account is required.' }, { status: 400 });
+    }
+
+    const smtpAccountId = parseInt(smtpAccountIdVal, 10);
+    if (isNaN(smtpAccountId)) {
+      return NextResponse.json({ error: 'Invalid SMTP account ID' }, { status: 400 });
+    }
+
+    // Verify SMTP account ownership, verification, and status
+    interface SmtpAccountCheck extends RowDataPacket {
+      user_id: number;
+      is_verified: number | boolean;
+      is_active: number | boolean;
+    }
+
+    const [smtpRows] = await db.query<SmtpAccountCheck[]>(
+      'SELECT user_id, is_verified, is_active FROM smtp_accounts WHERE id = ?',
+      [smtpAccountId]
+    );
+
+    if (smtpRows.length === 0) {
+      return NextResponse.json({ error: 'SMTP account not found' }, { status: 404 });
+    }
+
+    const smtpAccount = smtpRows[0];
+    if (smtpAccount.user_id !== user.id) {
+      return NextResponse.json({ error: 'SMTP account not found' }, { status: 404 }); // Do not leak existence of other users' accounts
+    }
+
+    if (!smtpAccount.is_active) {
+      return NextResponse.json({ error: 'SMTP account is inactive' }, { status: 400 });
+    }
+
+    if (!smtpAccount.is_verified) {
+      return NextResponse.json({ error: 'SMTP account is not verified' }, { status: 400 });
     }
 
     if (!file && (!manualEmails || !manualEmails.trim())) {
@@ -127,8 +168,8 @@ export async function POST(request: Request) {
 
       // Insert Campaign
       const [campResult] = await connection.query<ResultSetHeader>(
-        'INSERT INTO Campaigns (user_id, subject, body, status) VALUES (?, ?, ?, ?)',
-        [user.id, subject, body, 'draft']
+        'INSERT INTO Campaigns (user_id, subject, body, status, smtp_account_id) VALUES (?, ?, ?, ?, ?)',
+        [user.id, subject, body, 'draft', smtpAccountId]
       );
       const campaignId = campResult.insertId;
 

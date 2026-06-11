@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ThemeToggle from '@/components/ThemeToggle';
 
 interface Campaign {
   id: number;
@@ -10,6 +11,8 @@ interface Campaign {
   body: string;
   status: 'draft' | 'testing' | 'executed';
   created_at: string;
+  smtp_label?: string | null;
+  smtp_from_email?: string | null;
 }
 
 interface Client {
@@ -39,6 +42,10 @@ export default function CampaignDetailPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
+  // Editing Campaign Body States
+  const [isEditingBody, setIsEditingBody] = useState<boolean>(false);
+  const [editedBody, setEditedBody] = useState<string>('');
+
   // Execution States
   const [testingLoading, setTestingLoading] = useState<boolean>(false);
   const [executingLoading, setExecutingLoading] = useState<boolean>(false);
@@ -63,6 +70,7 @@ export default function CampaignDetailPage() {
       const data = await res.json();
       if (data.success) {
         setCampaign(data.campaign);
+        setEditedBody(data.campaign.body);
         setClients(data.clients || []);
         
         // Calculate counts
@@ -100,13 +108,12 @@ export default function CampaignDetailPage() {
     fetchCampaignData(true);
   }, [campaignId]);
 
-  // Set up polling when campaign is executing (status !== 'executed' and we have pending emails actively sending)
+  // Set up polling when campaign is executing
   useEffect(() => {
     if (isNaN(campaignId)) return;
 
     let intervalId: NodeJS.Timeout | null = null;
     
-    // If we've triggered sending and it's not complete, poll every 2.5 seconds
     const shouldPoll = campaign && campaign.status !== 'executed' && counts.pending > 0 && counts.sent + counts.failed > 0;
     
     if (shouldPoll || executingLoading) {
@@ -132,7 +139,6 @@ export default function CampaignDetailPage() {
       const data = await res.json();
       if (res.ok) {
         setActionMessage({ type: 'success', text: 'Test email successfully sent to your verified inbox!' });
-        // Refresh campaign to get the updated status ('testing')
         fetchCampaignData(false);
       } else {
         throw new Error(data.error || 'Test email failed.');
@@ -161,7 +167,6 @@ export default function CampaignDetailPage() {
       const data = await res.json();
       if (res.ok) {
         setActionMessage({ type: 'success', text: 'Bulk mailing started. Follow real-time progress below!' });
-        // Trigger immediate status updates
         fetchCampaignData(false);
       } else {
         throw new Error(data.error || 'Failed to start bulk send.');
@@ -173,9 +178,39 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const handleSaveBody = async () => {
+    if (!editedBody.trim()) {
+      setActionMessage({ type: 'error', text: 'Email body cannot be empty.' });
+      return;
+    }
+    
+    setTestingLoading(true);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: editedBody }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionMessage({ type: 'success', text: 'Campaign email body updated successfully! Status reset to Draft.' });
+        setIsEditingBody(false);
+        fetchCampaignData(false);
+      } else {
+        throw new Error(data.error || 'Failed to update campaign body.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      setActionMessage({ type: 'error', text: msg });
+    } finally {
+      setTestingLoading(false);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300">
+      <div className="min-h-screen flex items-center justify-center bg-bg-main text-text-muted">
         <div className="flex flex-col items-center space-y-4">
           <svg className="animate-spin h-10 w-10 text-indigo-500" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -189,13 +224,13 @@ export default function CampaignDetailPage() {
 
   if (error || !campaign) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300 px-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 max-w-md text-center shadow-2xl">
+      <div className="min-h-screen flex items-center justify-center bg-bg-main text-text-muted px-4">
+        <div className="bg-bg-card border border-border-main rounded-xl p-8 max-w-md text-center shadow-2xl">
           <svg className="w-12 h-12 text-rose-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          <h3 className="text-lg font-bold text-slate-200 mb-2">Error Occurred</h3>
-          <p className="text-slate-400 text-sm mb-6">{error || 'Unable to fetch campaign.'}</p>
+          <h3 className="text-lg font-bold text-text-main mb-2">Error Occurred</h3>
+          <p className="text-text-muted text-sm mb-6">{error || 'Unable to fetch campaign.'}</p>
           <Link href="/dashboard" className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors">
             Go back to Dashboard
           </Link>
@@ -214,18 +249,21 @@ export default function CampaignDetailPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-bg-main text-text-main flex flex-col transition-colors duration-200">
       {/* Top Navbar */}
-      <nav className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4 flex items-center justify-between">
+      <nav className="border-b border-border-main bg-bg-nav/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4 flex items-center justify-between transition-colors duration-200">
         <div className="flex items-center space-x-3">
-          <Link href="/dashboard" className="text-slate-400 hover:text-white transition-colors mr-2">
+          <Link href="/dashboard" className="text-text-dimmed hover:text-text-main transition-colors mr-2">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
           </Link>
-          <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+          <span className="font-extrabold text-lg tracking-tight text-indigo-600 dark:text-white">
             Campaign Control Center
           </span>
+        </div>
+        <div className="flex items-center">
+          <ThemeToggle />
         </div>
       </nav>
 
@@ -236,8 +274,8 @@ export default function CampaignDetailPage() {
         {actionMessage && (
           <div className={`p-4 rounded-xl border flex items-start space-x-3 ${
             actionMessage.type === 'success' 
-              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' 
-              : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-300' 
+              : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-300'
           }`}>
             <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               {actionMessage.type === 'success' ? (
@@ -254,47 +292,94 @@ export default function CampaignDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           {/* Campaign Info */}
-          <div className="lg:col-span-7 bg-slate-900/40 backdrop-blur-md border border-slate-900 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="lg:col-span-7 bg-bg-card border border-border-main rounded-2xl p-6 shadow-xl space-y-4 transition-all duration-200">
             <div>
               <div className="flex items-center space-x-3 mb-2">
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
                   campaign.status === 'executed'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                     : campaign.status === 'testing'
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'bg-slate-800 text-slate-300 border border-slate-700/50'
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/50'
                 }`}>
                   {campaign.status}
                 </span>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-text-dimmed">
                   Created on {new Date(campaign.created_at).toLocaleString()}
                 </span>
               </div>
-              <h1 className="text-2xl font-extrabold text-slate-100">{campaign.subject}</h1>
+              <h1 className="text-2xl font-extrabold text-text-main">{campaign.subject}</h1>
             </div>
 
-            <div className="border-t border-slate-800/60 pt-4">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Email Body</h3>
-              <div className="bg-slate-950/40 border border-slate-900 rounded-lg p-4 max-h-60 overflow-y-auto text-sm text-slate-300 whitespace-pre-wrap font-mono">
-                {campaign.body}
+            <div className="border-t border-border-main pt-4">
+              <h3 className="text-xs font-semibold text-text-dimmed uppercase tracking-wider mb-1">Sending Account</h3>
+              <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{campaign.smtp_label || 'Default / None'}</p>
+              {campaign.smtp_from_email && (
+                <p className="text-xs text-text-muted mt-0.5">{campaign.smtp_from_email}</p>
+              )}
+            </div>
+
+            <div className="border-t border-border-main pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold text-text-dimmed uppercase tracking-wider">Email Body</h3>
+                {campaign.status !== 'executed' && !isEditingBody && (
+                  <button
+                    onClick={() => {
+                      setEditedBody(campaign.body);
+                      setIsEditingBody(true);
+                    }}
+                    className="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                  >
+                    Edit Message
+                  </button>
+                )}
               </div>
+              
+              {isEditingBody ? (
+                <div className="space-y-3">
+                  <textarea
+                    rows={8}
+                    value={editedBody}
+                    onChange={(e) => setEditedBody(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-bg-input border border-border-main rounded-lg text-text-main placeholder-slate-400 focus:outline-none focus:border-border-focus text-sm transition-all resize-y font-mono"
+                  />
+                  <div className="flex space-x-2 justify-end">
+                    <button
+                      onClick={() => setIsEditingBody(false)}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveBody}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-755 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shadow-sm"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-bg-input border border-border-main rounded-lg p-4 max-h-60 overflow-y-auto text-sm text-text-muted whitespace-pre-wrap font-mono">
+                  {campaign.body}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Action Center / Stats */}
-          <div className="lg:col-span-5 bg-slate-900/40 backdrop-blur-md border border-slate-900 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-6">
+          <div className="lg:col-span-5 bg-bg-card border border-border-main rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-6 transition-all duration-200">
             <div>
-              <h2 className="text-lg font-bold mb-4 bg-gradient-to-r from-indigo-300 to-purple-300 bg-clip-text text-transparent">
+              <h2 className="text-lg font-bold mb-4 text-indigo-700 dark:text-indigo-300">
                 Execution Controls
               </h2>
 
               {/* Progress visualizer */}
               <div className="space-y-3 mb-6">
-                <div className="flex justify-between text-xs text-slate-400">
+                <div className="flex justify-between text-xs text-text-dimmed">
                   <span>Delivery Progress ({processedCount} / {counts.total} sent)</span>
-                  <span className="font-bold text-indigo-400">{progressPercent}%</span>
+                  <span className="font-bold text-indigo-600 dark:text-indigo-300">{progressPercent}%</span>
                 </div>
-                <div className="w-full bg-slate-950/80 rounded-full h-2 overflow-hidden border border-slate-900">
+                <div className="w-full bg-slate-100 dark:bg-slate-950/80 rounded-full h-2 overflow-hidden border border-border-main">
                   <div 
                     className="bg-gradient-to-r from-indigo-500 to-purple-600 h-full transition-all duration-500"
                     style={{ width: `${progressPercent}%` }}
@@ -304,27 +389,27 @@ export default function CampaignDetailPage() {
 
               {/* Stats Cards grid */}
               <div className="grid grid-cols-3 gap-3 text-center mb-6">
-                <div className="bg-slate-950/40 border border-slate-900 p-3 rounded-xl">
-                  <p className="text-xs text-slate-500">Pending</p>
-                  <p className="text-lg font-mono font-bold text-slate-300">{counts.pending}</p>
+                <div className="bg-bg-input border border-border-main p-3 rounded-xl">
+                  <p className="text-xs text-text-dimmed">Pending</p>
+                  <p className="text-lg font-mono font-bold text-text-muted">{counts.pending}</p>
                 </div>
-                <div className="bg-slate-950/40 border border-slate-900 p-3 rounded-xl border-emerald-500/10">
-                  <p className="text-xs text-slate-500">Sent</p>
-                  <p className="text-lg font-mono font-bold text-emerald-400">{counts.sent}</p>
+                <div className="bg-bg-input border border-border-main p-3 rounded-xl border-emerald-500/10">
+                  <p className="text-xs text-text-dimmed">Sent</p>
+                  <p className="text-lg font-mono font-bold text-emerald-600 dark:text-emerald-400">{counts.sent}</p>
                 </div>
-                <div className="bg-slate-950/40 border border-slate-900 p-3 rounded-xl border-rose-500/10">
-                  <p className="text-xs text-slate-500">Failed</p>
-                  <p className="text-lg font-mono font-bold text-rose-400">{counts.failed}</p>
+                <div className="bg-bg-input border border-border-main p-3 rounded-xl border-rose-500/10">
+                  <p className="text-xs text-text-dimmed">Failed</p>
+                  <p className="text-lg font-mono font-bold text-rose-600 dark:text-rose-400">{counts.failed}</p>
                 </div>
               </div>
             </div>
 
             {/* Buttons */}
-            <div className="space-y-3 pt-4 border-t border-slate-800/60">
+            <div className="space-y-3 pt-4 border-t border-border-main">
               <button
                 onClick={handleRunTest}
                 disabled={testingLoading || executingLoading || campaign.status === 'executed'}
-                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-700 text-sm font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-sm font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {testingLoading ? (
                   <>
@@ -374,7 +459,7 @@ export default function CampaignDetailPage() {
               </button>
               
               {campaign.status === 'draft' && (
-                <p className="text-[10px] text-center text-amber-400 font-medium">
+                <p className="text-[10px] text-center text-amber-500 font-medium">
                   * SMTP Configuration must be verified first by clicking &apos;Run Test Send&apos;.
                 </p>
               )}
@@ -384,10 +469,10 @@ export default function CampaignDetailPage() {
         </div>
 
         {/* Recipients Log List */}
-        <div className="bg-slate-900/40 backdrop-blur-md border border-slate-900 rounded-2xl p-6 shadow-xl space-y-4">
+        <div className="bg-bg-card border border-border-main rounded-2xl p-6 shadow-xl space-y-4 transition-all duration-200">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <h2 className="text-lg font-bold bg-gradient-to-r from-indigo-300 to-purple-300 bg-clip-text text-transparent flex items-center gap-2">
-              <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <h2 className="text-lg font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
+              <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
               </svg>
               Recipients Status Logs
@@ -400,53 +485,53 @@ export default function CampaignDetailPage() {
                 placeholder="Search by email or status..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-950/40 border border-slate-900 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-all"
+                className="w-full pl-9 pr-4 py-2 bg-bg-input border border-border-main rounded-lg text-xs text-text-main placeholder-slate-400 focus:outline-none focus:border-border-focus transition-all"
               />
-              <svg className="w-4 h-4 text-slate-600 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4 text-text-dimmed absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-950">
+          <div className="overflow-x-auto rounded-lg border border-border-main">
             <table className="w-full text-left border-collapse text-xs md:text-sm">
               <thead>
-                <tr className="bg-slate-950/60 border-b border-slate-900 text-slate-400 font-medium">
+                <tr className="bg-bg-input border-b border-border-main text-text-dimmed font-medium">
                   <th className="py-3 px-4">Recipient Email</th>
                   <th className="py-3 px-4">Delivery Status</th>
                   <th className="py-3 px-4 text-right">Added On</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-900/60">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-900/60">
                 {filteredClients.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="py-8 text-center text-slate-600">
+                    <td colSpan={3} className="py-8 text-center text-text-dimmed">
                       No matching recipients found.
                     </td>
                   </tr>
                 ) : (
                   filteredClients.map((client) => (
-                    <tr key={client.id} className="hover:bg-slate-900/10 transition-all">
-                      <td className="py-3 px-4 font-medium text-slate-200">{client.email}</td>
+                    <tr key={client.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/10 transition-all">
+                      <td className="py-3 px-4 font-medium text-text-muted">{client.email}</td>
                       <td className="py-3 px-4">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
                           client.status === 'sent'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                             : client.status === 'failed'
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            : 'bg-slate-800 text-slate-400 border border-slate-700/50'
+                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/50'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
                             client.status === 'sent' 
-                              ? 'bg-emerald-400 animate-pulse' 
+                              ? 'bg-emerald-500 dark:bg-emerald-400 animate-pulse' 
                               : client.status === 'failed' 
-                              ? 'bg-rose-400' 
-                              : 'bg-slate-500'
+                              ? 'bg-rose-500 dark:bg-rose-400' 
+                              : 'bg-slate-400 dark:bg-slate-500'
                           }`}></span>
                           {client.status}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right text-slate-500">
+                      <td className="py-3 px-4 text-right text-text-dimmed">
                         {new Date(client.created_at).toLocaleString()}
                       </td>
                     </tr>

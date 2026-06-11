@@ -1,10 +1,44 @@
 import nodemailer from 'nodemailer';
+import { decryptPassword } from './encryption';
 
 export interface SmtpConfig {
   host: string;
   port: number;
   user: string;
   pass: string;
+}
+
+export interface SmtpAccountInput {
+  host: string;
+  port: number;
+  username: string;
+  encrypted_password?: string;
+  password?: string;
+}
+
+/**
+ * Reusable SMTP transporter service that constructs a Nodemailer transporter.
+ */
+export function createTransporter(
+  smtpAccount: SmtpAccountInput,
+  options: { rejectUnauthorized: boolean; pool?: boolean }
+) {
+  let pass = '';
+  if (smtpAccount.password) {
+    pass = smtpAccount.password;
+  } else if (smtpAccount.encrypted_password) {
+    pass = decryptPassword(smtpAccount.encrypted_password);
+  }
+
+  return createSmtpTransporter(
+    {
+      host: smtpAccount.host,
+      port: Number(smtpAccount.port),
+      user: smtpAccount.username,
+      pass: pass,
+    },
+    options
+  );
 }
 
 /**

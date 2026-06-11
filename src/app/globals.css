@@ -1,26 +1,65 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-main: #f8fafc; /* slate-50 */
+  --bg-card: #ffffff; /* white */
+  --bg-input: #ffffff;
+  --text-main: #0f172a; /* slate-900 */
+  --text-muted: #334155; /* slate-700 */
+  --text-dimmed: #64748b; /* slate-500 */
+  --border-main: #e2e8f0; /* slate-200 */
+  --border-focus: #6366f1; /* indigo-500 */
+  --bg-nav: rgba(255, 255, 255, 0.8);
+  --bg-dropdown: #ffffff;
+
+  /* Recipients Selection section specific variables */
+  --bg-toggle-track: #f1f5f9; /* slate-100 */
+  --bg-dropzone: #f8fafc; /* slate-50 */
+  --border-dropzone: #cbd5e1; /* slate-300 */
+  --border-dropzone-hover: #94a3b8; /* slate-400 */
+}
+
+/* Dark mode values applied via .dark class */
+.dark {
+  --bg-main: #020617; /* slate-950 */
+  --bg-card: rgba(15, 23, 42, 0.4); /* slate-900/40 */
+  --bg-input: rgba(2, 6, 23, 0.4); /* slate-950/40 */
+  --text-main: #f1f5f9; /* slate-100 */
+  --text-muted: #cbd5e1; /* slate-300 */
+  --text-dimmed: #94a3b8; /* slate-400 */
+  --border-main: #1e293b; /* slate-800 */
+  --border-focus: #6366f1; /* indigo-500 */
+  --bg-nav: rgba(2, 6, 23, 0.8); /* slate-950/80 */
+  --bg-dropdown: #090d16;
+
+  /* Recipients Selection section specific variables */
+  --bg-toggle-track: rgba(2, 6, 23, 0.6); /* slate-950/60 */
+  --bg-dropzone: rgba(2, 6, 23, 0.2); /* slate-950/20 */
+  --border-dropzone: #1e293b; /* slate-800 */
+  --border-dropzone-hover: #334155; /* slate-700 */
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-bg-main: var(--bg-main);
+  --color-bg-card: var(--bg-card);
+  --color-bg-input: var(--bg-input);
+  --color-text-main: var(--text-main);
+  --color-text-muted: var(--text-muted);
+  --color-text-dimmed: var(--text-dimmed);
+  --color-border-main: var(--border-main);
+  --color-border-focus: var(--border-focus);
+  --color-bg-nav: var(--bg-nav);
+  --color-bg-dropdown: var(--bg-dropdown);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-bg-toggle-track: var(--bg-toggle-track);
+  --color-bg-dropzone: var(--bg-dropzone);
+  --color-border-dropzone: var(--border-dropzone);
+  --color-border-dropzone-hover: var(--border-dropzone-hover);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg-main);
+  color: var(--text-main);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }

@@ -1,14 +1,20 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import db from '@/lib/db';
-import { verifySmtpConnection, createSmtpTransporter } from '@/lib/smtp';
+import { verifySmtpConnection, createTransporter } from '@/lib/smtp';
+import { decryptPassword } from '@/lib/encryption';
 import { RowDataPacket } from 'mysql2/promise';
 
-interface UserSmtpRow extends RowDataPacket {
-  smtp_host: string;
-  smtp_port: number;
-  smtp_email: string;
-  smtp_pass: string;
+interface SmtpAccountRow extends RowDataPacket {
+  id: number;
+  user_id: number;
+  host: string;
+  port: number;
+  username: string;
+  encrypted_password: string;
+  from_email: string;
+  is_active: number | boolean;
+  is_verified: number | boolean;
 }
 
 interface CampaignRow extends RowDataPacket {
@@ -16,6 +22,7 @@ interface CampaignRow extends RowDataPacket {
   subject: string;
   body: string;
   status: string;
+  smtp_account_id: number | null;
 }
 
 interface ClientRow extends RowDataPacket {
@@ -37,7 +44,7 @@ export async function POST(request: Request) {
 
     // 1. Fetch Campaign details
     const [campaigns] = await db.query<CampaignRow[]>(
-      'SELECT id, subject, body, status FROM Campaigns WHERE id = ? AND user_id = ?',
+      'SELECT id, subject, body, status, smtp_account_id FROM Campaigns WHERE id = ? AND user_id = ?',
       [campaignId, user.id]
     );
 
@@ -47,6 +54,13 @@ export async function POST(request: Request) {
 
     const campaign = campaigns[0];
 
+    if (!campaign.smtp_account_id) {
+      return NextResponse.json(
+        { error: 'Campaign has no sending account configured' },
+        { status: 400 }
+      );
+    }
+
     // Verify test send was done (status should be 'testing')
     if (campaign.status !== 'testing') {
       return NextResponse.json(
@@ -55,16 +69,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Fetch User SMTP configuration
-    const [users] = await db.query<UserSmtpRow[]>(
-      'SELECT smtp_host, smtp_port, smtp_email, smtp_pass FROM Users WHERE id = ?',
-      [user.id]
+    // 2. Fetch specific SMTP configuration from smtp_accounts table
+    const [smtpAccounts] = await db.query<SmtpAccountRow[]>(
+      'SELECT id, user_id, host, port, username, encrypted_password, from_email, is_active, is_verified FROM smtp_accounts WHERE id = ?',
+      [campaign.smtp_account_id]
     );
 
-    if (users.length === 0) {
-      return NextResponse.json({ error: 'User SMTP settings not found' }, { status: 404 });
+    if (smtpAccounts.length === 0) {
+      return NextResponse.json({ error: 'SMTP account not found' }, { status: 404 });
     }
-    const smtp = users[0];
+    const smtp = smtpAccounts[0];
+
+    // Verify ownership
+    if (smtp.user_id !== user.id) {
+      return NextResponse.json({ error: 'Unauthorized to use this SMTP account' }, { status: 403 });
+    }
+
+    // Verify active & verified status
+    if (!smtp.is_active) {
+      return NextResponse.json({ error: 'SMTP account is inactive' }, { status: 400 });
+    }
+
+    if (!smtp.is_verified) {
+      return NextResponse.json({ error: 'SMTP account is not verified' }, { status: 400 });
+    }
 
     // 3. Fetch all pending clients
     const [clients] = await db.query<ClientRow[]>(
@@ -96,7 +124,7 @@ export async function POST(request: Request) {
 // Background executor
 async function runBulkSendBackground(
   campaignId: number,
-  smtp: UserSmtpRow,
+  smtp: SmtpAccountRow,
   clients: ClientRow[],
   subject: string,
   body: string
@@ -106,11 +134,12 @@ async function runBulkSendBackground(
   // Determine if we need to bypass TLS certificate validation for this mail server
   let rejectUnauthorized = true;
   try {
+    const passDecrypted = decryptPassword(smtp.encrypted_password);
     const verification = await verifySmtpConnection({
-      host: smtp.smtp_host,
-      port: smtp.smtp_port,
-      user: smtp.smtp_email,
-      pass: smtp.smtp_pass,
+      host: smtp.host,
+      port: smtp.port,
+      user: smtp.username,
+      pass: passDecrypted,
     });
     rejectUnauthorized = verification.rejectUnauthorized;
   } catch (verifyErr) {
@@ -119,12 +148,12 @@ async function runBulkSendBackground(
     rejectUnauthorized = false;
   }
 
-  const transporter = createSmtpTransporter(
+  const transporter = createTransporter(
     {
-      host: smtp.smtp_host,
-      port: smtp.smtp_port,
-      user: smtp.smtp_email,
-      pass: smtp.smtp_pass,
+      host: smtp.host,
+      port: smtp.port,
+      username: smtp.username,
+      encrypted_password: smtp.encrypted_password,
     },
     {
       rejectUnauthorized,
@@ -137,7 +166,7 @@ async function runBulkSendBackground(
   for (const client of clients) {
     try {
       await transporter.sendMail({
-        from: `"${smtp.smtp_email}" <${smtp.smtp_email}>`,
+        from: `"${smtp.from_email}" <${smtp.from_email}>`,
         to: client.email,
         subject: subject,
         text: isHtml ? undefined : body,
