@@ -2,7 +2,7 @@ import "./globals.css";
 import React from "react";
 
 export const metadata = {
-  title: "MailPulse - Mass Mailer Infrastructure",
+  title: "Queuvo - Mass Mailer",
   description: "Manage your high-performance delivery tunnels and ensure your outbound mail remains reliable across global nodes.",
 };
 
