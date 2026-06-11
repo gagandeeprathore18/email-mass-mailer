@@ -3,6 +3,7 @@ import db from './src/lib/db';
 import { verifySmtpConnection, createTransporter } from './src/lib/smtp';
 import { decryptPassword } from './src/lib/encryption';
 import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import crypto from 'crypto';
 
 interface CampaignRow extends RowDataPacket {
   id: number;
@@ -129,17 +130,40 @@ async function processCampaign(campaign: CampaignRow) {
       }
     );
 
-    const isHtml = campaign.body.includes('<') && campaign.body.includes('>');
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
     // 4. Send emails with throttling
     for (const client of clients) {
       try {
+        const trackingId = crypto.randomUUID();
+        
+        // Save tracking ID in database
+        await db.query("UPDATE Clients SET tracking_id = ? WHERE id = ?", [trackingId, client.id]);
+
+        // Construct tracking pixel html
+        const pixelHtml = `<img src="${appUrl}/api/track/open/${trackingId}" width="1" height="1" style="display:none;" />`;
+
+        // Check if original campaign body is HTML
+        const isHtml = campaign.body.includes('<') && campaign.body.includes('>');
+        let finalHtml = '';
+
+        if (isHtml) {
+          if (campaign.body.toLowerCase().includes('</body>')) {
+            finalHtml = campaign.body.replace(/<\/body>/i, `${pixelHtml}</body>`);
+          } else {
+            finalHtml = campaign.body + pixelHtml;
+          }
+        } else {
+          const formattedBody = campaign.body.replace(/\n/g, '<br />');
+          finalHtml = `<html><body>${formattedBody}${pixelHtml}</body></html>`;
+        }
+
         await transporter.sendMail({
           from: `"${smtp.from_email}" <${smtp.from_email}>`,
           to: client.email,
           subject: campaign.subject,
-          text: isHtml ? undefined : campaign.body,
-          html: isHtml ? campaign.body : undefined,
+          text: campaign.body, // original plain text fallback
+          html: finalHtml,     // HTML version with tracking pixel
         });
 
         // Update client status in DB to 'sent'

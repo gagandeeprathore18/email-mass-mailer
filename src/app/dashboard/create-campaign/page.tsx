@@ -212,7 +212,7 @@ export default function CreateCampaignPage() {
               Queuvo
             </span>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 leading-none">
-              Mass Mailer
+              Email Marketing
             </span>
           </Link>
           

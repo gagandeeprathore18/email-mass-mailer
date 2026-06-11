@@ -19,6 +19,7 @@ interface Client {
   id: number;
   email: string;
   status: 'pending' | 'sent' | 'failed';
+  opened_at?: string | null;
   created_at: string;
 }
 
@@ -39,6 +40,7 @@ export default function CampaignDetailPage() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [counts, setCounts] = useState<StatusCounts>({ pending: 0, sent: 0, failed: 0, total: 0 });
+  const [openedCount, setOpenedCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
@@ -75,6 +77,7 @@ export default function CampaignDetailPage() {
         setEditedSubject(data.campaign.subject || '');
         setEditedBody(data.campaign.body || '');
         setClients(data.clients || []);
+        setOpenedCount(data.openedCount || 0);
         
         // Calculate counts
         const rawCounts = data.counts as { status: 'pending' | 'sent' | 'failed'; count: number }[];
@@ -220,20 +223,17 @@ export default function CampaignDetailPage() {
     
     const exportData = clients.map(client => {
       let statusLabel = 'PENDING';
-      let codeText = 'QUEUED';
       if (client.status === 'sent') {
-        statusLabel = 'DELIVERED';
-        codeText = '250 OK';
+        statusLabel = 'SENT';
       } else if (client.status === 'failed') {
         statusLabel = 'FAILED';
-        codeText = '550 5.1.1';
       }
       return {
         'Recipient Email': client.email,
         'Timestamp': new Date(client.created_at).toISOString().replace('T', ' ').slice(0, 19),
         'Tunnel ID': campaign?.smtp_label ? `TN-${campaign.smtp_account_id}-X` : 'TN-DEFAULT-X',
         'Status': statusLabel,
-        'Response Code': codeText
+        'Opened At': client.opened_at ? new Date(client.opened_at).toISOString().replace('T', ' ').slice(0, 19) : 'N/A'
       };
     });
 
@@ -263,23 +263,20 @@ export default function CampaignDetailPage() {
       doc.text(`Campaign: ${campaign?.subject || 'N/A'} (ID: ${campaignId})`, 14, 22);
       doc.text(`Date: ${new Date().toLocaleString()}`, 14, 27);
 
-      const tableColumn = ["Recipient Email", "Timestamp", "Tunnel ID", "Status", "Response Code"];
+      const tableColumn = ["Recipient Email", "Timestamp", "Tunnel ID", "Status", "Opened At"];
       const tableRows = clients.map(client => {
         let statusLabel = 'PENDING';
-        let codeText = 'QUEUED';
         if (client.status === 'sent') {
-          statusLabel = 'DELIVERED';
-          codeText = '250 OK';
+          statusLabel = 'SENT';
         } else if (client.status === 'failed') {
           statusLabel = 'FAILED';
-          codeText = '550 5.1.1';
         }
         return [
           client.email,
           new Date(client.created_at).toISOString().replace('T', ' ').slice(0, 19),
           campaign?.smtp_label ? `TN-${campaign.smtp_account_id}-X` : 'TN-DEFAULT-X',
           statusLabel,
-          codeText
+          client.opened_at ? new Date(client.opened_at).toISOString().replace('T', ' ').slice(0, 19) : 'N/A'
         ];
       });
 
@@ -348,7 +345,7 @@ export default function CampaignDetailPage() {
               Queuvo
             </span>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 leading-none">
-              Mass Mailer
+              Email Marketing
             </span>
           </Link>
           
@@ -365,11 +362,13 @@ export default function CampaignDetailPage() {
             </span>
           </div>
         </div>
-        <div className="flex items-center space-x-4">
-          <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Active Workspace</span>
-          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs">
-            {campaign.smtp_label ? campaign.smtp_label.slice(0,2).toUpperCase() : 'MP'}
-          </div>
+        <div>
+          <Link 
+            href="/dashboard" 
+            className="px-4 py-2 border border-slate-200 hover:bg-slate-50 bg-white/50 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer inline-flex items-center space-x-1.5"
+          >
+            <span>Back to Dashboard</span>
+          </Link>
         </div>
       </nav>
 
@@ -559,14 +558,20 @@ export default function CampaignDetailPage() {
               </div>
  
               {/* Stats Cards grid */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-center">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Sent</span>
                   <span className="text-xl font-extrabold text-[#5038ED] font-mono mt-1 block">{counts.sent.toLocaleString()}</span>
                 </div>
                 <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-center">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Pending</span>
-                  <span className="text-xl font-extrabold text-slate-600 font-mono mt-1 block">{counts.pending.toLocaleString()}</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Opened</span>
+                  <span className="text-xl font-extrabold text-emerald-600 font-mono mt-1 block">{openedCount.toLocaleString()}</span>
+                </div>
+                <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Open Rate</span>
+                  <span className="text-xl font-extrabold text-indigo-600 font-mono mt-1 block">
+                    {counts.sent > 0 ? ((openedCount / counts.sent) * 100).toFixed(1) : '0.0'}%
+                  </span>
                 </div>
                 <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-center">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Failed</span>
@@ -719,7 +724,7 @@ export default function CampaignDetailPage() {
                   <th className="py-3.5 px-6">Timestamp</th>
                   <th className="py-3.5 px-6">Tunnel ID</th>
                   <th className="py-3.5 px-6">Status</th>
-                  <th className="py-3.5 px-6 text-right">Response Code</th>
+                  <th className="py-3.5 px-6 text-right">Open Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono text-[12px] text-slate-600">
@@ -733,19 +738,13 @@ export default function CampaignDetailPage() {
                   filteredClients.map((client) => {
                     let statusLabel = 'PENDING';
                     let pillColors = 'bg-slate-100 text-slate-600';
-                    let codeText = 'QUEUED';
-                    let codeColor = 'text-slate-400';
 
                     if (client.status === 'sent') {
-                      statusLabel = 'DELIVERED';
+                      statusLabel = 'Sent ✓';
                       pillColors = 'bg-[#DCFCE7] text-[#15803D]';
-                      codeText = '250 OK';
-                      codeColor = 'text-slate-700';
                     } else if (client.status === 'failed') {
-                      statusLabel = 'FAILED';
+                      statusLabel = 'Failed ✗';
                       pillColors = 'bg-[#FEE2E2] text-[#B91C1C]';
-                      codeText = '550 5.1.1';
-                      codeColor = 'text-rose-500 font-bold';
                     } else if (client.status === 'pending' && executingLoading) {
                       statusLabel = 'PROCESSING';
                       pillColors = 'bg-[#F3E8FF] text-[#6B21A8]';
@@ -753,6 +752,33 @@ export default function CampaignDetailPage() {
 
                     // Format timestamp
                     const timestampStr = new Date(client.created_at).toISOString().replace('T', ' ').slice(0, 19);
+
+                    // Open tracking representation
+                    let openTrackingLabel = (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-400">
+                        Opened ✗
+                      </span>
+                    );
+                    
+                    if (client.opened_at) {
+                      const openedDateStr = new Date(client.opened_at).toLocaleString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                      }).replace(',', '');
+                      
+                      openTrackingLabel = (
+                        <div className="flex flex-col items-end">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#DCFCE7] text-[#15803D]">
+                            Opened ✓
+                          </span>
+                          <span className="text-[10px] text-slate-400 mt-1 font-mono">Opened At: {openedDateStr}</span>
+                        </div>
+                      );
+                    }
 
                     return (
                       <tr key={client.id} className="hover:bg-slate-50/50 transition-colors">
@@ -766,7 +792,7 @@ export default function CampaignDetailPage() {
                             {statusLabel}
                           </span>
                         </td>
-                        <td className={`py-4 px-6 text-right ${codeColor}`}>{codeText}</td>
+                        <td className="py-4 px-6 text-right">{openTrackingLabel}</td>
                       </tr>
                     );
                   })

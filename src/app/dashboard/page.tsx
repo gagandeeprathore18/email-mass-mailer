@@ -14,6 +14,7 @@ interface Campaign {
   smtp_label?: string | null;
   sent_count?: number;
   failed_count?: number;
+  opened_count?: number;
 }
 
 interface UserProfile {
@@ -198,7 +199,7 @@ export default function DashboardPage() {
               Queuvo
             </span>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 leading-none">
-              Mass Mailer
+              Email Marketing
             </span>
           </Link>
 
@@ -446,6 +447,7 @@ export default function DashboardPage() {
                         <th className="py-4 px-6">SMTP Account</th>
                         <th className="py-4 px-6">Recipients</th>
                         <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6">Open Rate</th>
                         <th className="py-4 px-6">Date Created</th>
                         <th className="py-4 px-6 text-right">Action</th>
                       </tr>
@@ -453,7 +455,7 @@ export default function DashboardPage() {
                     <tbody className="divide-y divide-slate-100">
                       {paginatedCampaigns.map((camp) => (
                         <tr key={camp.id} className="hover:bg-slate-50/50 transition-colors group">
-                          <td className="py-4 px-6 font-semibold text-slate-900 max-w-[200px] truncate">
+                           <td className="py-4 px-6 font-semibold text-slate-900 max-w-[200px] truncate">
                             {camp.subject}
                           </td>
                           <td className="py-4 px-6 text-slate-500 font-medium">
@@ -462,7 +464,7 @@ export default function DashboardPage() {
                           <td className="py-4 px-6 text-slate-600 font-mono">
                             {camp.client_count.toLocaleString()}
                           </td>
-                           <td className="py-4 px-6">
+                          <td className="py-4 px-6">
                             <span
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase inline-block ${
                                 camp.status === 'completed'
@@ -485,6 +487,12 @@ export default function DashboardPage() {
                               {camp.status === 'paused' && 'Paused'}
                               {camp.status === 'draft' && 'Draft'}
                             </span>
+                          </td>
+                          <td className="py-4 px-6 text-slate-600 font-mono">
+                            {camp.sent_count && camp.sent_count > 0 
+                              ? `${((Number(camp.opened_count) || 0) / camp.sent_count * 100).toFixed(1)}%`
+                              : '0.0%'
+                            }
                           </td>
                           <td className="py-4 px-6 text-slate-400">
                             {new Date(camp.created_at).toLocaleDateString(undefined, {

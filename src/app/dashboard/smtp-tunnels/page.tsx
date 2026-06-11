@@ -159,8 +159,8 @@ export default function SmtpTunnelsPage() {
             <span className="font-extrabold text-2xl tracking-tight text-[#5038ED] leading-none">
               Queuvo
             </span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 leading-none">
-              Mass Mailer
+            <span className=" text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 leading-none">
+              Email Marketing
             </span>
           </Link>
           

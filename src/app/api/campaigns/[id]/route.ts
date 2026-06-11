@@ -60,9 +60,16 @@ export async function GET(
       [campaignId]
     );
 
-    // Fetch sample clients
+    // Fetch open counts
+    const [openCountRows] = await db.query<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM Clients WHERE campaign_id = ? AND opened_at IS NOT NULL',
+      [campaignId]
+    );
+    const openedCount = openCountRows[0].count;
+
+    // Fetch sample clients with opened_at details
     const [clients] = await db.query<RowDataPacket[]>(
-      'SELECT id, email, status, created_at FROM Clients WHERE campaign_id = ? ORDER BY id ASC LIMIT 150',
+      'SELECT id, email, status, opened_at, created_at FROM Clients WHERE campaign_id = ? ORDER BY id ASC LIMIT 150',
       [campaignId]
     );
 
@@ -70,6 +77,7 @@ export async function GET(
       success: true,
       campaign: campaigns[0],
       counts: statusCounts,
+      openedCount: Number(openedCount),
       clients,
     });
   } catch (error) {

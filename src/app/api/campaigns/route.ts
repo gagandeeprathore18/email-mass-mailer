@@ -14,6 +14,7 @@ interface CampaignRow extends RowDataPacket {
   smtp_label?: string | null;
   sent_count: number;
   failed_count: number;
+  opened_count: number;
 }
 
 export async function GET() {
@@ -24,7 +25,10 @@ export async function GET() {
     }
 
     const [campaigns] = await db.query<CampaignRow[]>(
-      `SELECT c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, COUNT(cl.id) as client_count, sa.label as smtp_label 
+      `SELECT c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, 
+              COUNT(cl.id) as client_count, 
+              SUM(CASE WHEN cl.opened_at IS NOT NULL THEN 1 ELSE 0 END) as opened_count,
+              sa.label as smtp_label 
        FROM Campaigns c 
        LEFT JOIN Clients cl ON c.id = cl.campaign_id 
        LEFT JOIN smtp_accounts sa ON c.smtp_account_id = sa.id
@@ -34,12 +38,18 @@ export async function GET() {
       [user.id]
     );
 
-    return NextResponse.json({ success: true, campaigns });
+    const formattedCampaigns = campaigns.map(camp => ({
+      ...camp,
+      opened_count: Number(camp.opened_count || 0)
+    }));
+
+    return NextResponse.json({ success: true, campaigns: formattedCampaigns });
   } catch (error) {
     console.error('Fetch campaigns error:', error);
     return NextResponse.json({ error: 'Failed to fetch campaigns' }, { status: 500 });
   }
 }
+
 
 export async function POST(request: Request) {
   try {
