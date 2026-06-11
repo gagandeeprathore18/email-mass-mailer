@@ -363,11 +363,6 @@ export default function CreateCampaignPage() {
           <div className="h-6 w-px bg-slate-200" />
  
           <div className="flex items-center space-x-2">
-            <Link href="/dashboard" className="text-slate-400 hover:text-slate-700 transition-colors">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </Link>
             <span className="font-bold text-sm text-slate-700">
               Compose Campaign
             </span>
