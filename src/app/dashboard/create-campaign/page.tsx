@@ -46,6 +46,11 @@ export default function CreateCampaignPage() {
   const [scheduleTime, setScheduleTime] = useState<string>('');
   const [userTimezone, setUserTimezone] = useState<string>('');
 
+
+
+  const [showManualModal, setShowManualModal] = useState<boolean>(false);
+  const [showSchedulePopover, setShowSchedulePopover] = useState<boolean>(false);
+
   useEffect(() => {
     try {
       setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
@@ -227,13 +232,8 @@ export default function CreateCampaignPage() {
       return;
     }
 
-    if (recipientMode === 'excel' && !file) {
-      setFormError('Please upload an Excel file.');
-      return;
-    }
-
-    if (recipientMode === 'manual' && !manualEmails.trim()) {
-      setFormError('Please manually enter at least one email.');
+    if (!file && !manualEmails.trim()) {
+      setFormError('Please upload an Excel list file or enter manually typed emails.');
       return;
     }
 
@@ -264,12 +264,13 @@ export default function CreateCampaignPage() {
     formData.append('body', body);
     formData.append('smtpAccountId', selectedSmtpId);
     formData.append('scheduledAt', scheduledAtISO);
-    if (recipientMode === 'excel' && file) {
+    
+    // Explicitly check selected mode or just what is present
+    if (file) {
       formData.append('file', file);
-    } else if (recipientMode === 'manual') {
+    } else if (manualEmails.trim()) {
       formData.append('manualEmails', manualEmails);
     }
-
 
     try {
       const res = await fetch('/api/campaigns', {
@@ -314,7 +315,6 @@ export default function CreateCampaignPage() {
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (attachmentInputRef.current) attachmentInputRef.current.value = '';
 
-
       setTimeout(() => {
         router.push('/dashboard');
       }, 1500);
@@ -343,6 +343,8 @@ export default function CreateCampaignPage() {
     );
   }
 
+  const manualRecipientsCount = manualEmails.split(/[\n,;\s]+/).filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim())).length;
+
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900 flex flex-col font-sans">
       
@@ -359,7 +361,7 @@ export default function CreateCampaignPage() {
           </Link>
           
           <div className="h-6 w-px bg-slate-200" />
-
+ 
           <div className="flex items-center space-x-2">
             <Link href="/dashboard" className="text-slate-400 hover:text-slate-700 transition-colors">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -381,160 +383,289 @@ export default function CreateCampaignPage() {
         </div>
       </nav>
 
+      {/* Hidden file input for Excel uploads */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+        className="hidden"
+      />
+
+      {/* Hidden file input for Attachments */}
+      <input
+        type="file"
+        ref={attachmentInputRef}
+        onChange={handleAttachmentChange}
+        multiple
+        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
+        className="hidden"
+      />
+
+      {/* Manual Emails Modal */}
+      {showManualModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 animate-scaleUp">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Enter Recipient Emails</h3>
+              <button 
+                type="button" 
+                onClick={() => setShowManualModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">Paste or type your email list. Separate each email with commas, spaces, or new lines.</p>
+            <textarea
+              rows={8}
+              value={manualEmails}
+              onChange={(e) => setManualEmails(e.target.value)}
+              placeholder="E.g., client1@domain.com, client2@domain.com"
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] font-mono"
+            />
+            <div className="flex justify-end space-x-3 mt-4">
+              <button
+                type="button"
+                onClick={() => { setShowManualModal(false); setManualEmails(''); }}
+                className="px-4 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50"
+              >
+                Clear & Close
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowManualModal(false)}
+                className="px-4 py-2 bg-[#5038ED] hover:bg-[#402bd6] text-white text-xs font-bold rounded-lg shadow-sm"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Container */}
       <main className="flex-1 p-8 max-w-7xl w-full mx-auto space-y-8">
         
         {/* Title */}
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Create Mailing Campaign</h1>
-          <p className="text-slate-500 text-sm mt-1.5">Create your campaign content, select your verified SMTP server, and upload your clients list.</p>
+          <p className="text-slate-500 text-sm mt-1.5">Compose your campaign content, select your verified SMTP server, and upload your clients list.</p>
         </div>
 
-        {/* Form Container */}
-        <div className="bg-white border border-slate-200/60 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-6">
-            {formError && (
-              <div className="mb-4 p-4 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-xs break-words">
-                {formError}
-              </div>
-            )}
-            {formSuccess && (
-              <div className="mb-4 p-4 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs">
-                {formSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleCreateCampaign} className="space-y-6">
+        {/* Form Container Card */}
+        <div className="w-full bg-white rounded-2xl shadow-sm border border-slate-200/60 grid grid-cols-1 md:grid-cols-4 min-h-[660px] overflow-hidden">
+          
+          {/* Left Side: Protocol and Execution */}
+          <div className="bg-[#fafafc] border-r border-slate-200/60 p-6 flex flex-col justify-between">
+            <div className="space-y-6">
               
-              {/* Divided into two columns */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                
-                {/* Left Column: Composition */}
-                <div className="lg:col-span-7 space-y-5">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Sending Account</label>
-                    {loadingSmtp ? (
-                      <div className="h-10 bg-slate-50 border border-slate-200 rounded-lg animate-pulse flex items-center px-3 text-xs text-slate-400">
-                        Loading tunnels...
-                      </div>
-                    ) : smtpAccounts.length === 0 ? (
-                      <div className="p-4 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl flex items-center justify-between">
-                        <span>No active & verified SMTP tunnels found.</span>
-                        <Link href="/dashboard/smtp-tunnels" className="text-[#5038ED] hover:underline font-bold">
-                          Add SMTP Tunnel
-                        </Link>
-                      </div>
-                    ) : (
-                      <select
-                        value={selectedSmtpId}
-                        onChange={(e) => setSelectedSmtpId(e.target.value)}
-                        required
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] text-sm transition-all"
+              {/* Protocol Account Pickers */}
+              <div>
+                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Protocol</span>
+                {loadingSmtp ? (
+                  <div className="space-y-2">
+                    <div className="h-12 bg-white/50 border border-slate-200 rounded-xl animate-pulse" />
+                    <div className="h-12 bg-white/50 border border-slate-200 rounded-xl animate-pulse" />
+                  </div>
+                ) : smtpAccounts.length === 0 ? (
+                  <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl space-y-2">
+                    <p>No active SMTP accounts.</p>
+                    <Link href="/dashboard/smtp-tunnels" className="text-[#5038ED] hover:underline font-bold block text-[10px] uppercase tracking-wider">
+                      + Add SMTP Tunnel
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {smtpAccounts.map((acc) => (
+                      <button
+                        key={acc.id}
+                        type="button"
+                        onClick={() => setSelectedSmtpId(acc.id.toString())}
+                        className={`w-full flex items-center space-x-3 p-3 rounded-xl border text-left transition-all ${
+                          selectedSmtpId === acc.id.toString()
+                            ? 'bg-white border-[#5038ED] shadow-sm text-slate-900 font-semibold ring-2 ring-[#5038ED]/10'
+                            : 'bg-white/40 border-slate-200/60 text-slate-500 hover:bg-white/80 hover:text-slate-700'
+                        }`}
                       >
-                        {smtpAccounts.map((acc) => (
-                          <option key={acc.id} value={acc.id}>
-                            {acc.label} ({acc.from_email})
-                          </option>
-                        ))}
-                      </select>
+                        <div className={`p-1.5 rounded-lg ${selectedSmtpId === acc.id.toString() ? 'bg-indigo-50 text-[#5038ED]' : 'bg-slate-100 text-slate-400'}`}>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                          </svg>
+                        </div>
+                        <div className="truncate">
+                          <p className="text-xs truncate font-bold">{acc.label}</p>
+                          <p className="text-[9px] text-slate-400 truncate">{acc.from_email}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Execution / Schedule Summary */}
+              <div>
+                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Execution</span>
+                <div className="bg-white/60 border border-slate-200/60 p-3.5 rounded-xl text-xs space-y-1.5 shadow-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 rounded-full ${sendOption === 'immediate' ? 'bg-emerald-500' : 'bg-indigo-500 animate-pulse'}`} />
+                    <p className="font-bold text-slate-700">
+                      {sendOption === 'immediate' ? 'Direct Send' : 'Scheduled Delivery'}
+                    </p>
+                  </div>
+                  {sendOption === 'later' && scheduleDate && scheduleTime ? (
+                    <p className="text-[10px] text-[#5038ED] font-semibold">
+                      {scheduleDate} at {scheduleTime}
+                    </p>
+                  ) : (
+                    <p className="text-[9px] text-slate-400">Campaign will start immediately upon submission.</p>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+
+
+          </div>
+
+          {/* Right Side: Email Composer */}
+          <div className="md:col-span-3 p-8 flex flex-col justify-between relative bg-white">
+            
+            <form onSubmit={handleCreateCampaign} className="flex flex-col flex-1 justify-between">
+              <div className="space-y-2">
+                
+                {/* Form Header */}
+                <div className="flex justify-between items-start border-b border-slate-100 pb-4">
+                  <div>
+                    <h2 className="font-extrabold text-2xl text-slate-900 tracking-tight">
+                      New Campaign
+                    </h2>
+                    <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                      Draft ready to dispatch • Auto-saved local state
+                    </p>
+                  </div>
+                  <Link 
+                    href="/dashboard" 
+                    className="text-slate-300 hover:text-slate-600 transition-colors p-1"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </Link>
+                </div>
+
+                {/* Status Banner */}
+                {formError && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl break-all animate-fadeIn">
+                    {formError}
+                  </div>
+                )}
+                {formSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs rounded-xl animate-fadeIn">
+                    {formSuccess}
+                  </div>
+                )}
+
+                {/* Recipients Row */}
+                <div className="flex items-center py-3 border-b border-slate-100 min-h-[52px]">
+                  <span className="text-slate-400 text-xs font-bold w-24 shrink-0">Recipients</span>
+                  <div className="flex-1 flex flex-wrap items-center gap-2 text-xs">
+                    {file && (
+                      <div className="inline-flex items-center space-x-1 px-3 py-1 bg-indigo-50 border border-indigo-100 text-[#5038ED] text-xs font-bold rounded-full shadow-sm animate-fadeIn">
+                        <svg className="w-3.5 h-3.5 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="truncate max-w-xs">{file.name}</span>
+                        <button type="button" onClick={() => setFile(null)} className="hover:text-rose-600 font-bold ml-1 text-[13px] leading-none">&times;</button>
+                      </div>
                     )}
-                  </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Subject Line</label>
-                    <input
-                      type="text"
-                      required
-                      value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                      placeholder="E.g., Quarterly Infrastructure Alert"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] text-sm transition-all"
-                    />
-                  </div>
+                    {manualRecipientsCount > 0 && (
+                      <div className="inline-flex items-center space-x-1 px-3 py-1 bg-indigo-50 border border-indigo-100 text-[#5038ED] text-xs font-bold rounded-full shadow-sm animate-fadeIn">
+                        <span>{manualRecipientsCount} Recipients</span>
+                        <button type="button" onClick={() => setManualEmails('')} className="hover:text-rose-600 font-bold ml-1 text-[13px] leading-none">&times;</button>
+                      </div>
+                    )}
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email Body (Text / HTML)</label>
-                    <textarea
-                      required
-                      rows={12}
-                      value={body}
-                      onChange={(e) => setBody(e.target.value)}
-                      placeholder="Write your email body copy here..."
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] text-sm transition-all resize-y"
-                    />
-                  </div>
-
-                  {/* Campaign Attachments Section */}
-                  <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-5 space-y-4">
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Campaign Attachments</h3>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Attach files to be mailed (PDF, DOC, DOCX, JPG, JPEG, PNG. Max 5 files, 10MB each, 25MB total).</p>
-                    </div>
-
-                    {/* Drag & Drop zone */}
-                    <div
-                      onDragOver={handleAttachmentDragOver}
-                      onDragLeave={handleAttachmentDragLeave}
-                      onDrop={handleAttachmentDrop}
-                      onClick={() => attachmentInputRef.current?.click()}
-                      className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all ${
-                        dragOverAttachments
-                          ? 'border-[#5038ED] bg-[#5038ED]/5'
-                          : 'border-slate-300 hover:border-slate-400 bg-white'
-                      }`}
-                    >
-                      <input
-                        type="file"
-                        ref={attachmentInputRef}
-                        onChange={handleAttachmentChange}
-                        multiple
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
-                        className="hidden"
-                      />
-                      <svg className="w-6 h-6 mx-auto text-slate-400 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-3.536 3.536m0 0l-3.536-3.536m3.536 3.536V21M21 15v1a3 3 0 01-3 3H6a3 3 0 01-3-3v-1" />
-                      </svg>
-                      <p className="text-[11px] font-semibold text-slate-500">
-                        <span className="text-[#5038ED] hover:underline font-bold">Choose attachments</span> or drag & drop here
-                      </p>
-                    </div>
-
-                    {/* Selected attachments list */}
-                    {attachments.length > 0 && (
-                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                        {attachments.map((f, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg text-xs">
-                            <div className="flex items-center space-x-2.5 truncate">
-                              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                              </svg>
-                              <div className="truncate">
-                                <p className="font-semibold text-slate-800 truncate" title={f.name}>{f.name}</p>
-                                <p className="text-[9px] text-slate-400">{(f.size / 1024 / 1024).toFixed(2)} MB</p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeAttachment(idx)}
-                              className="text-slate-400 hover:text-rose-600 transition-colors p-1"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                        ))}
+                    {!file && manualRecipientsCount === 0 && (
+                      <div className="flex items-center space-x-3">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-[#5038ED] hover:text-[#402bd6] font-bold"
+                        >
+                          + Upload Excel List
+                        </button>
+                        <span className="text-slate-200">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowManualModal(true)}
+                          className="text-[#5038ED] hover:text-[#402bd6] font-bold"
+                        >
+                          + Enter Manually
+                        </button>
                       </div>
                     )}
                   </div>
+                </div>
 
-                  {/* Send Options (Scheduling) Section */}
-                  <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-5 space-y-4">
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Send Options</h3>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Choose when you want this email campaign to start sending.</p>
+                {/* Subject Row */}
+                <div className="flex items-center py-3 border-b border-slate-100">
+                  <span className="text-slate-400 text-xs font-bold w-24 shrink-0">Subject</span>
+                  <input
+                    type="text"
+                    required
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="Campaign Objective / Subject Line"
+                    className="flex-1 border-none focus:ring-0 p-0 text-slate-800 placeholder-slate-400 text-sm font-semibold focus:outline-none"
+                  />
+                </div>
+
+                {/* Body Area */}
+                <textarea
+                  required
+                  rows={10}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="Write your narrative here..."
+                  className="w-full border-none focus:ring-0 p-0 pt-4 text-slate-700 placeholder-slate-400 text-sm resize-none focus:outline-none min-h-[260px]"
+                />
+
+              </div>
+
+              {/* Campaign Attachments List */}
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 py-3 border-t border-slate-100 mt-4">
+                  {attachments.map((f, idx) => (
+                    <div key={idx} className="flex items-center space-x-1.5 px-3 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded-full text-xs">
+                      <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                      <span className="truncate max-w-[150px]">{f.name}</span>
+                      <button type="button" onClick={() => removeAttachment(idx)} className="text-slate-400 hover:text-rose-600 font-bold ml-1">&times;</button>
                     </div>
+                  ))}
+                </div>
+              )}
 
+              {/* Footer Actions / Scheduling Popover */}
+              <div className="border-t border-slate-100 pt-4 flex justify-between items-center relative mt-4">
+                
+                {/* Scheduling popover overlay */}
+                {showSchedulePopover && (
+                  <div className="absolute bottom-16 left-0 md:right-0 md:left-auto z-40 bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-80 space-y-4 animate-slideUp">
+                    <div className="flex justify-between items-center">
+                      <span className="block text-[10px] font-bold text-slate-800 uppercase tracking-wider">Schedule Configuration</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setShowSchedulePopover(false)} 
+                        className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+                      >
+                        &times;
+                      </button>
+                    </div>
                     <div className="space-y-3">
                       <label className="flex items-center space-x-2.5 cursor-pointer text-xs font-semibold text-slate-700">
                         <input
@@ -547,7 +678,6 @@ export default function CreateCampaignPage() {
                         />
                         <span>Send Immediately</span>
                       </label>
-
                       <label className="flex items-center space-x-2.5 cursor-pointer text-xs font-semibold text-slate-700">
                         <input
                           type="radio"
@@ -560,9 +690,8 @@ export default function CreateCampaignPage() {
                         <span>Schedule For Later</span>
                       </label>
                     </div>
-
                     {sendOption === 'later' && (
-                      <div className="pt-3 border-t border-slate-200/60 grid grid-cols-2 gap-4 animate-fadeIn">
+                      <div className="space-y-3 pt-3 border-t border-slate-100 animate-fadeIn">
                         <div>
                           <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Date</label>
                           <input
@@ -571,7 +700,7 @@ export default function CreateCampaignPage() {
                             min={new Date().toISOString().split('T')[0]}
                             value={scheduleDate}
                             onChange={(e) => setScheduleDate(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
                           />
                         </div>
                         <div>
@@ -581,135 +710,90 @@ export default function CreateCampaignPage() {
                             required
                             value={scheduleTime}
                             onChange={(e) => setScheduleTime(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
                           />
                         </div>
-                        <div className="col-span-2 text-[10px] text-slate-400 font-medium">
-                          Displaying in your local timezone: <span className="font-bold text-slate-600">{userTimezone}</span>
+                        <div className="text-[9px] text-slate-400 font-medium">
+                          Timezone: {userTimezone}
                         </div>
                       </div>
                     )}
-                  </div>
-
-                </div>
-
-
-                {/* Right Column: Recipients Selection */}
-                <div className="lg:col-span-5 space-y-5">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Recipients Selection</label>
-                    
-                    {/* Mode Toggles */}
-                    <div className="grid grid-cols-2 gap-2 mb-3 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <div className="flex justify-end pt-2">
                       <button
                         type="button"
-                        onClick={() => setRecipientMode('excel')}
-                        className={`py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                          recipientMode === 'excel'
-                            ? 'bg-[#5038ED] text-white shadow-sm'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
+                        onClick={() => setShowSchedulePopover(false)}
+                        className="px-3 py-1.5 bg-[#5038ED] text-white text-xs font-bold rounded-lg hover:bg-[#402bd6]"
                       >
-                        Excel Upload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRecipientMode('manual')}
-                        className={`py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                          recipientMode === 'manual'
-                            ? 'bg-[#5038ED] text-white shadow-sm'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        Enter the Email Addresses here
+                        Confirm
                       </button>
                     </div>
-
-                    {recipientMode === 'excel' ? (
-                      <div
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all min-h-[300px] flex flex-col items-center justify-center ${
-                          dragOver
-                            ? 'border-[#5038ED] bg-[#5038ED]/5'
-                            : file
-                            ? 'border-emerald-500/50 bg-emerald-50/10'
-                            : 'border-slate-300 hover:border-slate-400 bg-slate-50'
-                        }`}
-                      >
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          onChange={handleFileChange}
-                          accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                          className="hidden"
-                        />
-                        
-                        {file ? (
-                          <div className="space-y-2 text-emerald-600">
-                            <svg className="w-10 h-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p className="text-sm font-semibold truncate max-w-xs mx-auto">{file.name}</p>
-                            <p className="text-[11px] text-slate-400">{(file.size / 1024).toFixed(1)} KB - Click to replace</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-3 text-slate-400">
-                            <svg className="w-10 h-10 mx-auto text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                            </svg>
-                            <p className="text-xs font-semibold">
-                              <span className="text-[#5038ED] hover:underline font-bold">Upload a file</span> or drag & drop
-                            </p>
-                            <p className="text-[10px]">Supports .xlsx or .xls files containing email columns</p>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        <textarea
-                          rows={12}
-                          value={manualEmails}
-                          onChange={(e) => setManualEmails(e.target.value)}
-                          placeholder="Type or paste emails here (separated by commas, spaces, or new lines)&#10;E.g., user1@example.com, user2@example.com"
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] text-xs transition-all resize-y"
-                        />
-                      </div>
-                    )}
                   </div>
+                )}
+
+                {/* Manage Media Button in Toolbar */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => attachmentInputRef.current?.click()}
+                    className="flex items-center space-x-2 px-4 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-600 hover:bg-[#fafafc] transition-all cursor-pointer shadow-sm"
+                  >
+                    <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    <span>Manage Media</span>
+                    {attachments.length > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 bg-indigo-50 text-[#5038ED] font-bold text-[10px] rounded-md border border-indigo-100">
+                        {attachments.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Main Submit/Schedule buttons */}
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowSchedulePopover(!showSchedulePopover)}
+                    className={`px-5 py-2 border rounded-full text-xs font-semibold shadow-sm transition-all cursor-pointer ${
+                      sendOption === 'later'
+                        ? 'bg-indigo-50 border-[#d3cbff] text-[#5038ED] font-bold'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {sendOption === 'later' && scheduleDate && scheduleTime
+                      ? `Scheduled: ${scheduleDate} ${scheduleTime}`
+                      : 'Schedule'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={formLoading || smtpAccounts.length === 0}
+                    className="px-6 py-2.5 bg-[#5038ED] hover:bg-[#402bd6] text-white text-xs font-bold rounded-full shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer space-x-1.5"
+                  >
+                    {formLoading ? (
+                      <>
+                        <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span>Initializing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Initialize Campaign</span>
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M9.813 15.904L9 21L14.907 15.904L21 21V3L3 12.06L9.813 15.904Z" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
                 </div>
 
               </div>
 
-              <div className="pt-4 flex space-x-3 border-t border-slate-100 justify-end">
-                <Link
-                  href="/dashboard"
-                  className="px-6 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer text-center"
-                >
-                  Cancel
-                </Link>
-                <button
-                  type="submit"
-                  disabled={formLoading || smtpAccounts.length === 0}
-                  className="px-6 py-2.5 bg-[#5038ED] hover:bg-[#402bd6] text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
-                >
-                  {formLoading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Creating Campaign...
-                    </>
-                  ) : (
-                    'Create Campaign'
-                  )}
-                </button>
-              </div>
             </form>
+
           </div>
+
         </div>
 
       </main>
@@ -718,6 +802,7 @@ export default function CreateCampaignPage() {
       <footer className="border-t border-slate-200/60 bg-white py-6 px-8 mt-12 text-xs text-slate-400 flex items-center justify-between">
         <span>&copy; 2026 Queuvo. </span>
       </footer>
+
     </div>
   );
 }
