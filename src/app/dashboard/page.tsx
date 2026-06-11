@@ -8,13 +8,14 @@ interface Campaign {
   id: number;
   subject: string;
   body: string;
-  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused';
+  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused' | 'cancelled';
   created_at: string;
   client_count: number;
   smtp_label?: string | null;
   sent_count?: number;
   failed_count?: number;
   opened_count?: number;
+  scheduled_at?: string | null;
 }
 
 interface UserProfile {
@@ -447,6 +448,7 @@ export default function DashboardPage() {
                         <th className="py-4 px-6">SMTP Account</th>
                         <th className="py-4 px-6">Recipients</th>
                         <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6">Send Time</th>
                         <th className="py-4 px-6">Open Rate</th>
                         <th className="py-4 px-6">Date Created</th>
                         <th className="py-4 px-6 text-right">Action</th>
@@ -477,6 +479,8 @@ export default function DashboardPage() {
                                   ? 'bg-rose-50 text-rose-600'
                                   : camp.status === 'paused'
                                   ? 'bg-slate-100 text-slate-500'
+                                  : camp.status === 'cancelled'
+                                  ? 'bg-slate-100 text-slate-400 line-through'
                                   : 'bg-slate-50 text-slate-400'
                               }`}
                             >
@@ -485,8 +489,34 @@ export default function DashboardPage() {
                               {camp.status === 'queued' && 'Queued'}
                               {camp.status === 'failed' && 'Failed'}
                               {camp.status === 'paused' && 'Paused'}
+                              {camp.status === 'cancelled' && 'Cancelled'}
                               {camp.status === 'draft' && 'Draft'}
                             </span>
+                          </td>
+                          <td className="py-4 px-6 text-xs text-slate-500 font-medium">
+                            {camp.status === 'queued' ? (
+                              camp.scheduled_at ? (
+                                <div className="flex flex-col">
+                                  <span className="text-slate-400 text-[9px] uppercase font-bold">Scheduled For</span>
+                                  <span className="text-slate-700 font-semibold mt-0.5">
+                                    {new Date(camp.scheduled_at).toLocaleDateString(undefined, {
+                                      month: 'short',
+                                      day: 'numeric',
+                                    })}{' '}
+                                    {new Date(camp.scheduled_at).toLocaleTimeString(undefined, {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-emerald-600 font-bold">Immediately</span>
+                              )
+                            ) : camp.status === 'draft' ? (
+                              <span className="text-slate-400 italic">Not set</span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                           <td className="py-4 px-6 text-slate-600 font-mono">
                             {camp.sent_count && camp.sent_count > 0 
@@ -501,6 +531,7 @@ export default function DashboardPage() {
                               year: 'numeric',
                             })}
                           </td>
+
                           <td className="py-4 px-6 text-right">
                             <Link
                               href={`/dashboard/campaigns/${camp.id}`}

@@ -4,6 +4,7 @@ import db from '@/lib/db';
 import { sendMailWithFallback } from '@/lib/smtp';
 import { decryptPassword } from '@/lib/encryption';
 import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import path from 'path';
 
 interface SmtpAccountRow extends RowDataPacket {
   id: number;
@@ -89,6 +90,17 @@ export async function POST(request: Request) {
     }
     const userEmail = users[0].email;
 
+    // Fetch campaign attachments
+    const [attachmentRows] = await db.query<RowDataPacket[]>(
+      "SELECT file_name, file_path FROM campaign_attachments WHERE campaign_id = ?",
+      [campaignId]
+    );
+
+    const attachments = attachmentRows.map(file => ({
+      filename: file.file_name,
+      path: path.join(process.cwd(), file.file_path)
+    }));
+
     // 4. Send test email to user's registered login email with TLS/SSL fallback
     const isHtml = campaign.body.includes('<') && campaign.body.includes('>');
     const passDecrypted = decryptPassword(smtp.encrypted_password);
@@ -106,8 +118,10 @@ export async function POST(request: Request) {
         subject: `[TEST] ${campaign.subject}`,
         text: isHtml ? undefined : campaign.body,
         html: isHtml ? campaign.body : undefined,
+        attachments, // Campaign attachments
       }
     );
+
 
     // 5. Update campaign status to 'testing' if it was in 'draft'
     if (campaign.status === 'draft') {

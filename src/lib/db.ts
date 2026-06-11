@@ -4,7 +4,7 @@ let pool: Pool;
 
 declare global {
   // eslint-disable-next-line no-var
-  var dbPool: Pool | undefined;
+  var dbPoolV2: Pool | undefined;
 }
 
 if (process.env.NODE_ENV === 'production') {
@@ -17,10 +17,11 @@ if (process.env.NODE_ENV === 'production') {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    timezone: 'Z',
   });
 } else {
-  if (!globalThis.dbPool) {
-    globalThis.dbPool = mysql.createPool({
+  if (!globalThis.dbPoolV2) {
+    globalThis.dbPoolV2 = mysql.createPool({
       host: process.env.DB_HOST || '127.0.0.1',
       user: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
@@ -29,9 +30,10 @@ if (process.env.NODE_ENV === 'production') {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
+      timezone: 'Z',
     });
   }
-  pool = globalThis.dbPool;
+  pool = globalThis.dbPoolV2;
 }
 
 export default pool;

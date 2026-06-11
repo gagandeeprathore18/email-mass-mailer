@@ -8,13 +8,14 @@ interface CampaignRow extends RowDataPacket {
   id: number;
   subject: string;
   body: string;
-  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused';
+  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused' | 'cancelled';
   created_at: Date;
   client_count: number;
   smtp_label?: string | null;
   sent_count: number;
   failed_count: number;
   opened_count: number;
+  scheduled_at: Date | null;
 }
 
 export async function GET() {
@@ -25,7 +26,7 @@ export async function GET() {
     }
 
     const [campaigns] = await db.query<CampaignRow[]>(
-      `SELECT c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, 
+      `SELECT c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, c.scheduled_at,
               COUNT(cl.id) as client_count, 
               SUM(CASE WHEN cl.opened_at IS NOT NULL THEN 1 ELSE 0 END) as opened_count,
               sa.label as smtp_label 
@@ -33,7 +34,7 @@ export async function GET() {
        LEFT JOIN Clients cl ON c.id = cl.campaign_id 
        LEFT JOIN smtp_accounts sa ON c.smtp_account_id = sa.id
        WHERE c.user_id = ? 
-       GROUP BY c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, sa.label 
+       GROUP BY c.id, c.subject, c.body, c.status, c.created_at, c.sent_count, c.failed_count, c.scheduled_at, sa.label 
        ORDER BY c.created_at DESC`,
       [user.id]
     );
@@ -64,9 +65,22 @@ export async function POST(request: Request) {
     const file = formData.get('file') as File | null;
     const manualEmails = formData.get('manualEmails') as string | null;
     const smtpAccountIdVal = formData.get('smtpAccountId') as string | null;
+    const scheduledAtVal = formData.get('scheduledAt') as string | null;
 
     if (!subject || !body) {
       return NextResponse.json({ error: 'Subject and body are required.' }, { status: 400 });
+    }
+
+    let scheduledAt: Date | null = null;
+    if (scheduledAtVal && scheduledAtVal !== 'null' && scheduledAtVal.trim() !== '') {
+      scheduledAt = new Date(scheduledAtVal);
+      if (isNaN(scheduledAt.getTime())) {
+        return NextResponse.json({ error: 'Invalid scheduled date and time.' }, { status: 400 });
+      }
+      // Tolerate very minor clock drift (e.g. 5 seconds)
+      if (scheduledAt.getTime() < Date.now() - 5000) {
+        return NextResponse.json({ error: 'Cannot schedule campaigns in the past.' }, { status: 400 });
+      }
     }
 
     if (!smtpAccountIdVal) {
@@ -180,10 +194,11 @@ export async function POST(request: Request) {
 
       // Insert Campaign
       const [campResult] = await connection.query<ResultSetHeader>(
-        'INSERT INTO Campaigns (user_id, subject, body, status, smtp_account_id) VALUES (?, ?, ?, ?, ?)',
-        [user.id, subject, body, 'draft', smtpAccountId]
+        'INSERT INTO Campaigns (user_id, subject, body, status, smtp_account_id, scheduled_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [user.id, subject, body, 'queued', smtpAccountId, scheduledAt]
       );
       const campaignId = campResult.insertId;
+
 
       // Bulk Insert Clients
       const clientValues = emails.map((email) => [campaignId, email, 'pending']);

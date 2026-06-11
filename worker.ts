@@ -4,6 +4,7 @@ import { verifySmtpConnection, createTransporter } from './src/lib/smtp';
 import { decryptPassword } from './src/lib/encryption';
 import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import crypto from 'crypto';
+import path from 'path';
 
 interface CampaignRow extends RowDataPacket {
   id: number;
@@ -35,9 +36,9 @@ const POLL_INTERVAL_MS = 3000;
 async function checkAndProcessQueue() {
   let connection;
   try {
-    // 1. Fetch campaigns that are in 'queued' state
+    // 1. Fetch campaigns that are in 'queued' state and due for execution (immediate or scheduled in the past)
     const [queuedCampaigns] = await db.query<CampaignRow[]>(
-      "SELECT id, subject, body, smtp_account_id FROM Campaigns WHERE status = 'queued' ORDER BY created_at ASC"
+      "SELECT id, subject, body, smtp_account_id FROM Campaigns WHERE status = 'queued' AND (scheduled_at IS NULL OR scheduled_at <= UTC_TIMESTAMP()) ORDER BY created_at ASC"
     );
 
     if (queuedCampaigns.length === 0) {
@@ -47,7 +48,7 @@ async function checkAndProcessQueue() {
     // Attempt to claim one campaign using concurrency lock
     for (const campaign of queuedCampaigns) {
       const [claimResult] = await db.query<ResultSetHeader>(
-        "UPDATE Campaigns SET status = 'processing', started_at = NOW() WHERE id = ? AND status = 'queued'",
+        "UPDATE Campaigns SET status = 'processing', started_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'queued'",
         [campaign.id]
       );
 
@@ -93,7 +94,7 @@ async function processCampaign(campaign: CampaignRow) {
     if (clients.length === 0) {
       console.log(`Campaign ${campaign.id} has no pending clients.`);
       await db.query(
-        "UPDATE Campaigns SET status = 'completed', completed_at = NOW() WHERE id = ?",
+        "UPDATE Campaigns SET status = 'completed', completed_at = UTC_TIMESTAMP() WHERE id = ?",
         [campaign.id]
       );
       return;
@@ -132,6 +133,21 @@ async function processCampaign(campaign: CampaignRow) {
 
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
+    // Fetch campaign attachments
+    interface AttachmentRow extends RowDataPacket {
+      file_name: string;
+      file_path: string;
+    }
+    const [attachmentRows] = await db.query<AttachmentRow[]>(
+      "SELECT file_name, file_path FROM campaign_attachments WHERE campaign_id = ?",
+      [campaign.id]
+    );
+
+    const attachments = attachmentRows.map(file => ({
+      filename: file.file_name,
+      path: path.join(process.cwd(), file.file_path)
+    }));
+
     // 4. Send emails with throttling
     for (const client of clients) {
       try {
@@ -164,6 +180,7 @@ async function processCampaign(campaign: CampaignRow) {
           subject: campaign.subject,
           text: campaign.body, // original plain text fallback
           html: finalHtml,     // HTML version with tracking pixel
+          attachments,         // Campaign attachments
         });
 
         // Update client status in DB to 'sent'
@@ -190,7 +207,7 @@ async function processCampaign(campaign: CampaignRow) {
 
     // 5. Update campaign status to completed
     await db.query(
-      "UPDATE Campaigns SET status = 'completed', completed_at = NOW() WHERE id = ?",
+      "UPDATE Campaigns SET status = 'completed', completed_at = UTC_TIMESTAMP() WHERE id = ?",
       [campaign.id]
     );
     console.log(`Campaign ${campaign.id} completed successfully!`);
@@ -198,7 +215,7 @@ async function processCampaign(campaign: CampaignRow) {
   } catch (err: any) {
     console.error(`Fatal error in processing Campaign ${campaign.id}:`, err.message);
     await db.query(
-      "UPDATE Campaigns SET status = 'failed', completed_at = NOW() WHERE id = ?",
+      "UPDATE Campaigns SET status = 'failed', completed_at = UTC_TIMESTAMP() WHERE id = ?",
       [campaign.id]
     );
   }

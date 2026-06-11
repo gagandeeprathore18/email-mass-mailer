@@ -8,11 +8,14 @@ interface Campaign {
   id: number;
   subject: string;
   body: string;
-  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused';
+  status: 'draft' | 'testing' | 'queued' | 'processing' | 'completed' | 'failed' | 'paused' | 'cancelled';
   created_at: string;
   smtp_account_id?: number | null;
   smtp_label?: string | null;
   smtp_from_email?: string | null;
+  scheduled_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 interface Client {
@@ -20,6 +23,15 @@ interface Client {
   email: string;
   status: 'pending' | 'sent' | 'failed';
   opened_at?: string | null;
+  created_at: string;
+}
+
+interface Attachment {
+  id: number;
+  file_name: string;
+  file_path: string;
+  file_size: number;
+  mime_type: string;
   created_at: string;
 }
 
@@ -39,6 +51,7 @@ export default function CampaignDetailPage() {
   // States
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [counts, setCounts] = useState<StatusCounts>({ pending: 0, sent: 0, failed: 0, total: 0 });
   const [openedCount, setOpenedCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
@@ -48,6 +61,40 @@ export default function CampaignDetailPage() {
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editedSubject, setEditedSubject] = useState<string>('');
   const [editedBody, setEditedBody] = useState<string>('');
+  const [editedSendOption, setEditedSendOption] = useState<'immediate' | 'later'>('immediate');
+  const [editedScheduleDate, setEditedScheduleDate] = useState<string>('');
+  const [editedScheduleTime, setEditedScheduleTime] = useState<string>('');
+  const [userTimezone, setUserTimezone] = useState<string>('');
+
+  useEffect(() => {
+    try {
+      setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+    } catch {
+      setUserTimezone('UTC');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (campaign && isEditing) {
+      if (campaign.scheduled_at) {
+        const localDate = new Date(campaign.scheduled_at);
+        const yyyy = localDate.getFullYear();
+        const mm = String(localDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(localDate.getDate()).padStart(2, '0');
+        const hh = String(localDate.getHours()).padStart(2, '0');
+        const min = String(localDate.getMinutes()).padStart(2, '0');
+        
+        setEditedSendOption('later');
+        setEditedScheduleDate(`${yyyy}-${mm}-${dd}`);
+        setEditedScheduleTime(`${hh}:${min}`);
+      } else {
+        setEditedSendOption('immediate');
+        setEditedScheduleDate('');
+        setEditedScheduleTime('');
+      }
+    }
+  }, [isEditing, campaign]);
+
 
   // Execution States
   const [testingLoading, setTestingLoading] = useState<boolean>(false);
@@ -74,6 +121,7 @@ export default function CampaignDetailPage() {
       const data = await res.json();
       if (data.success) {
         setCampaign(data.campaign);
+        setAttachments(data.attachments || []);
         setEditedSubject(data.campaign.subject || '');
         setEditedBody(data.campaign.body || '');
         setClients(data.clients || []);
@@ -100,6 +148,26 @@ export default function CampaignDetailPage() {
       setError('An error occurred while loading campaign details.');
     } finally {
       if (showLoader) setLoading(false);
+    }
+  };
+
+  const handleDeleteCampaign = async () => {
+    if (!window.confirm("Are you sure you want to delete this campaign? All logs, recipients, and attachments will be permanently removed.")) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete campaign.');
+      }
+      
+      router.push('/dashboard');
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err.message || 'An error occurred during deletion.' });
     }
   };
 
@@ -193,6 +261,24 @@ export default function CampaignDetailPage() {
       setActionMessage({ type: 'error', text: 'Email body cannot be empty.' });
       return;
     }
+
+    let scheduledAtISO: string | null = null;
+    if (editedSendOption === 'later') {
+      if (!editedScheduleDate || !editedScheduleTime) {
+        setActionMessage({ type: 'error', text: 'Please select both a scheduled date and time.' });
+        return;
+      }
+      const localDateTime = new Date(`${editedScheduleDate}T${editedScheduleTime}`);
+      if (isNaN(localDateTime.getTime())) {
+        setActionMessage({ type: 'error', text: 'Invalid scheduled date and time.' });
+        return;
+      }
+      if (localDateTime.getTime() < Date.now() - 5000) {
+        setActionMessage({ type: 'error', text: 'Cannot schedule campaigns in the past.' });
+        return;
+      }
+      scheduledAtISO = localDateTime.toISOString();
+    }
     
     setTestingLoading(true);
     setActionMessage(null);
@@ -200,11 +286,15 @@ export default function CampaignDetailPage() {
       const res = await fetch(`/api/campaigns/${campaignId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: editedSubject, body: editedBody }),
+        body: JSON.stringify({ 
+          subject: editedSubject, 
+          body: editedBody,
+          scheduledAt: scheduledAtISO
+        }),
       });
       const data = await res.json();
       if (res.ok) {
-        setActionMessage({ type: 'success', text: 'Campaign details updated successfully! Status reset to Draft.' });
+        setActionMessage({ type: 'success', text: 'Campaign details updated successfully!' });
         setIsEditing(false);
         fetchCampaignData(false);
       } else {
@@ -217,6 +307,28 @@ export default function CampaignDetailPage() {
       setTestingLoading(false);
     }
   };
+
+  const handleCancelCampaign = async () => {
+    if (!window.confirm("Are you sure you want to cancel this campaign? It will not be sent.")) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/cancel`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to cancel campaign.');
+      }
+      
+      setActionMessage({ type: 'success', text: 'Campaign cancelled successfully.' });
+      fetchCampaignData(false);
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err.message || 'An error occurred during cancellation.' });
+    }
+  };
+
 
   const handleExportExcel = () => {
     if (clients.length === 0) return;
@@ -401,6 +513,31 @@ export default function CampaignDetailPage() {
               </button>
             )}
 
+            {(campaign.status === 'queued' || campaign.status === 'draft') && !isEditing && (
+              <button
+                onClick={handleCancelCampaign}
+                className="inline-flex items-center px-4.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-800 text-xs font-bold rounded-xl border border-amber-200 transition-all cursor-pointer space-x-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <span>Cancel Campaign</span>
+              </button>
+            )}
+
+            {(campaign.status !== 'queued' && campaign.status !== 'processing') && !isEditing && (
+              <button
+                onClick={handleDeleteCampaign}
+                disabled={executingLoading || testingLoading}
+                className="inline-flex items-center px-4.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 text-xs font-bold rounded-xl border border-rose-200 transition-all cursor-pointer space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                <span>Delete Campaign</span>
+              </button>
+            )}
+
             {(campaign.status !== 'queued' && campaign.status !== 'processing' && campaign.status !== 'completed') && !isEditing && (
               <button
                 onClick={() => {
@@ -418,6 +555,8 @@ export default function CampaignDetailPage() {
               </button>
             )}
           </div>
+
+
         </div>
 
         {/* Alerts Section */}
@@ -479,6 +618,64 @@ export default function CampaignDetailPage() {
                     />
                   </div>
 
+                  <div className="border-t border-slate-100 pt-3 space-y-3">
+                    <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Send Options</label>
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center space-x-2.5 cursor-pointer text-xs font-semibold text-slate-700">
+                        <input
+                          type="radio"
+                          name="editedSendOption"
+                          value="immediate"
+                          checked={editedSendOption === 'immediate'}
+                          onChange={() => setEditedSendOption('immediate')}
+                          className="w-4 h-4 text-[#5038ED] border-slate-300 focus:ring-[#5038ED]"
+                        />
+                        <span>Send Immediately</span>
+                      </label>
+                      <label className="flex items-center space-x-2.5 cursor-pointer text-xs font-semibold text-slate-700">
+                        <input
+                          type="radio"
+                          name="editedSendOption"
+                          value="later"
+                          checked={editedSendOption === 'later'}
+                          onChange={() => setEditedSendOption('later')}
+                          className="w-4 h-4 text-[#5038ED] border-slate-300 focus:ring-[#5038ED]"
+                        />
+                        <span>Schedule For Later</span>
+                      </label>
+                    </div>
+
+                    {editedSendOption === 'later' && (
+                      <div className="grid grid-cols-2 gap-4 pt-1 animate-fadeIn">
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Date</label>
+                          <input
+                            type="date"
+                            required
+                            min={new Date().toISOString().split('T')[0]}
+                            value={editedScheduleDate}
+                            onChange={(e) => setEditedScheduleDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Time</label>
+                          <input
+                            type="time"
+                            required
+                            value={editedScheduleTime}
+                            onChange={(e) => setEditedScheduleTime(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
+                          />
+                        </div>
+                        <div className="col-span-2 text-[10px] text-slate-400 font-medium">
+                          Displaying in your local timezone: <span className="font-bold text-slate-600">{userTimezone}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+
                   <div className="flex space-x-2 justify-end">
                     <button
                       onClick={() => setIsEditing(false)}
@@ -511,14 +708,46 @@ export default function CampaignDetailPage() {
                       <p className="text-slate-400 text-[10px]">Subject: <span className="text-slate-800 font-bold">{campaign.subject}</span></p>
                       <p className="text-slate-400 text-[10px] mt-0.5">Sender: <span className="text-[#5038ED] font-semibold">{campaign.smtp_from_email || 'Default Tunnel'}</span></p>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] text-slate-400 mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <div>Created: <span className="text-slate-700 font-bold">{new Date(campaign.created_at).toLocaleString()}</span></div>
+                      {campaign.scheduled_at && (
+                        <div>Scheduled: <span className="text-indigo-600 font-bold">{new Date(campaign.scheduled_at).toLocaleString()}</span></div>
+                      )}
+                      {campaign.started_at && (
+                        <div>Started: <span className="text-slate-700 font-bold">{new Date(campaign.started_at).toLocaleString()}</span></div>
+                      )}
+                      {campaign.completed_at && (
+                        <div>Completed: <span className="text-slate-700 font-bold">{new Date(campaign.completed_at).toLocaleString()}</span></div>
+                      )}
+                    </div>
+
                     <div className="border-t border-slate-100 pt-3 text-slate-600 font-sans leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto pr-1">
                       {campaign.body}
                     </div>
+
+                    {attachments.length > 0 && (
+                      <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Attachments</span>
+                        <div className="space-y-1.5">
+                          {attachments.map((att) => (
+                            <div key={att.id} className="flex items-center space-x-2.5 text-xs text-slate-600 bg-slate-50 border border-slate-150 p-2.5 rounded-lg truncate">
+                              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                              </svg>
+                              <span className="font-semibold truncate" title={att.file_name}>{att.file_name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">({(att.file_size / 1024).toFixed(1)} KB)</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
           </div>
+
 
           {/* Column 2: Execution Controls */}
           <div className="lg:col-span-7 bg-white border border-slate-200/60 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between">
@@ -543,7 +772,9 @@ export default function CampaignDetailPage() {
                       {campaign.status === 'queued' && 'Queued'}
                       {campaign.status === 'failed' && 'Failed'}
                       {campaign.status === 'paused' && 'Paused'}
+                      {campaign.status === 'cancelled' && 'Cancelled'}
                       {campaign.status === 'draft' && 'Ready'}
+
                     </span>
                   )}
                 </div>
@@ -597,7 +828,13 @@ export default function CampaignDetailPage() {
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-3">
               <button
                 onClick={handleRunTest}
-                disabled={testingLoading || executingLoading || campaign.status === 'completed' || campaign.status === 'queued' || campaign.status === 'processing'}
+                disabled={
+                  testingLoading || 
+                  executingLoading || 
+                  campaign.status === 'completed' || 
+                  campaign.status === 'processing' || 
+                  (campaign.status === 'queued' && (!campaign.scheduled_at || new Date(campaign.scheduled_at).getTime() <= Date.now()))
+                }
                 className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-40"
               >
                 {testingLoading ? (

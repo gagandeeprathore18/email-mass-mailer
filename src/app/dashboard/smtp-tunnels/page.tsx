@@ -273,13 +273,13 @@ export default function SmtpTunnelsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">User</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">User Email</label>
                     <input
                       type="text"
                       required
                       value={smtpUsername}
                       onChange={(e) => setSmtpUsername(e.target.value)}
-                      placeholder="api_user_key"
+                      placeholder="enter user email id"
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
                     />
                   </div>

@@ -67,7 +67,7 @@ export default function AuthPage() {
       <div className="w-full max-w-lg bg-white border border-slate-200/60 shadow-xl rounded-2xl p-8 md:p-10 transition-all duration-300">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-extrabold tracking-tight text-[#5038ED] mb-2">
-            MailPulse
+            Queuvo
           </h1>
           <p className="text-slate-500 text-sm">
             {isSignUp ? 'Configure your SMTP settings to launch bulk campaigns' : 'Sign in to manage your high-performance delivery tunnels'}

@@ -34,6 +34,26 @@ export default function CreateCampaignPage() {
 
   // Dropzone drag-over state
   const [dragOver, setDragOver] = useState<boolean>(false);
+  const [dragOverAttachments, setDragOverAttachments] = useState<boolean>(false);
+
+  // Attachments state
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+
+  // Scheduling states
+  const [sendOption, setSendOption] = useState<'immediate' | 'later'>('immediate');
+  const [scheduleDate, setScheduleDate] = useState<string>('');
+  const [scheduleTime, setScheduleTime] = useState<string>('');
+  const [userTimezone, setUserTimezone] = useState<string>('');
+
+  useEffect(() => {
+    try {
+      setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+    } catch {
+      setUserTimezone('UTC');
+    }
+  }, []);
+
 
   // Fetch SMTP accounts
   async function fetchSmtpAccounts() {
@@ -117,6 +137,83 @@ export default function CreateCampaignPage() {
     }
   };
 
+  // Attachment Drag and Drop handlers
+  const handleAttachmentDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverAttachments(true);
+  };
+
+  const handleAttachmentDragLeave = () => {
+    setDragOverAttachments(false);
+  };
+
+  const handleAttachmentDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverAttachments(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      addAttachments(Array.from(e.dataTransfer.files));
+    }
+  };
+
+  const handleAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      addAttachments(Array.from(e.target.files));
+    }
+  };
+
+  const addAttachments = (files: File[]) => {
+    setFormError('');
+    const newAttachments = [...attachments];
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png',
+      'image/jpg'
+    ];
+
+    for (const f of files) {
+      // Allow case insensitive checking or common mime types
+      const fileType = f.type || '';
+      const isAllowed = allowedTypes.includes(fileType) || 
+                        f.name.endsWith('.pdf') || 
+                        f.name.endsWith('.doc') || 
+                        f.name.endsWith('.docx') || 
+                        f.name.endsWith('.jpg') || 
+                        f.name.endsWith('.jpeg') || 
+                        f.name.endsWith('.png');
+
+      if (!isAllowed) {
+        setFormError(`Invalid attachment type: ${f.name}. Supported formats: PDF, DOC, DOCX, JPG, JPEG, PNG.`);
+        return;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        setFormError(`File ${f.name} exceeds the 10 MB limit.`);
+        return;
+      }
+      newAttachments.push(f);
+    }
+
+    if (newAttachments.length > 5) {
+      setFormError('Maximum 5 attachments allowed per campaign.');
+      return;
+    }
+
+    const totalSize = newAttachments.reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > 25 * 1024 * 1024) {
+      setFormError('Total size of attachments cannot exceed 25 MB.');
+      return;
+    }
+
+    setAttachments(newAttachments);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+  };
+
   // Submit Create Campaign
   const handleCreateCampaign = async (e: FormEvent) => {
     e.preventDefault();
@@ -140,6 +237,24 @@ export default function CreateCampaignPage() {
       return;
     }
 
+    let scheduledAtISO = 'null';
+    if (sendOption === 'later') {
+      if (!scheduleDate || !scheduleTime) {
+        setFormError('Please select both a scheduled date and time.');
+        return;
+      }
+      const localDateTime = new Date(`${scheduleDate}T${scheduleTime}`);
+      if (isNaN(localDateTime.getTime())) {
+        setFormError('Invalid scheduled date and time.');
+        return;
+      }
+      if (localDateTime.getTime() < Date.now() - 5000) {
+        setFormError('Cannot schedule campaigns in the past.');
+        return;
+      }
+      scheduledAtISO = localDateTime.toISOString();
+    }
+
     setFormLoading(true);
     setFormError('');
     setFormSuccess('');
@@ -148,11 +263,13 @@ export default function CreateCampaignPage() {
     formData.append('subject', subject);
     formData.append('body', body);
     formData.append('smtpAccountId', selectedSmtpId);
+    formData.append('scheduledAt', scheduledAtISO);
     if (recipientMode === 'excel' && file) {
       formData.append('file', file);
     } else if (recipientMode === 'manual') {
       formData.append('manualEmails', manualEmails);
     }
+
 
     try {
       const res = await fetch('/api/campaigns', {
@@ -166,12 +283,37 @@ export default function CreateCampaignPage() {
         throw new Error(data.error || 'Failed to create campaign.');
       }
 
+      const campaignId = data.campaignId;
+
+      // Upload files sequentially
+      for (const att of attachments) {
+        const attData = new FormData();
+        attData.append('campaignId', campaignId.toString());
+        attData.append('file', att);
+
+        const uploadRes = await fetch('/api/campaigns/upload', {
+          method: 'POST',
+          body: attData,
+        });
+
+        if (!uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          throw new Error(uploadData.error || 'Failed to upload attachment.');
+        }
+      }
+
       setFormSuccess(`Campaign successfully created with ${data.clientCount} recipients!`);
       setSubject('');
       setBody('');
       setFile(null);
+      setAttachments([]);
+      setSendOption('immediate');
+      setScheduleDate('');
+      setScheduleTime('');
       setManualEmails('');
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+
 
       setTimeout(() => {
         router.push('/dashboard');
@@ -321,7 +463,136 @@ export default function CreateCampaignPage() {
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] text-sm transition-all resize-y"
                     />
                   </div>
+
+                  {/* Campaign Attachments Section */}
+                  <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-5 space-y-4">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Campaign Attachments</h3>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Attach files to be mailed (PDF, DOC, DOCX, JPG, JPEG, PNG. Max 5 files, 10MB each, 25MB total).</p>
+                    </div>
+
+                    {/* Drag & Drop zone */}
+                    <div
+                      onDragOver={handleAttachmentDragOver}
+                      onDragLeave={handleAttachmentDragLeave}
+                      onDrop={handleAttachmentDrop}
+                      onClick={() => attachmentInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all ${
+                        dragOverAttachments
+                          ? 'border-[#5038ED] bg-[#5038ED]/5'
+                          : 'border-slate-300 hover:border-slate-400 bg-white'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        ref={attachmentInputRef}
+                        onChange={handleAttachmentChange}
+                        multiple
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
+                        className="hidden"
+                      />
+                      <svg className="w-6 h-6 mx-auto text-slate-400 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-3.536 3.536m0 0l-3.536-3.536m3.536 3.536V21M21 15v1a3 3 0 01-3 3H6a3 3 0 01-3-3v-1" />
+                      </svg>
+                      <p className="text-[11px] font-semibold text-slate-500">
+                        <span className="text-[#5038ED] hover:underline font-bold">Choose attachments</span> or drag & drop here
+                      </p>
+                    </div>
+
+                    {/* Selected attachments list */}
+                    {attachments.length > 0 && (
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {attachments.map((f, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg text-xs">
+                            <div className="flex items-center space-x-2.5 truncate">
+                              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                              </svg>
+                              <div className="truncate">
+                                <p className="font-semibold text-slate-800 truncate" title={f.name}>{f.name}</p>
+                                <p className="text-[9px] text-slate-400">{(f.size / 1024 / 1024).toFixed(2)} MB</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeAttachment(idx)}
+                              className="text-slate-400 hover:text-rose-600 transition-colors p-1"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Send Options (Scheduling) Section */}
+                  <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-5 space-y-4">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Send Options</h3>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Choose when you want this email campaign to start sending.</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="flex items-center space-x-2.5 cursor-pointer text-xs font-semibold text-slate-700">
+                        <input
+                          type="radio"
+                          name="sendOption"
+                          value="immediate"
+                          checked={sendOption === 'immediate'}
+                          onChange={() => setSendOption('immediate')}
+                          className="w-4 h-4 text-[#5038ED] border-slate-300 focus:ring-[#5038ED]"
+                        />
+                        <span>Send Immediately</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 cursor-pointer text-xs font-semibold text-slate-700">
+                        <input
+                          type="radio"
+                          name="sendOption"
+                          value="later"
+                          checked={sendOption === 'later'}
+                          onChange={() => setSendOption('later')}
+                          className="w-4 h-4 text-[#5038ED] border-slate-300 focus:ring-[#5038ED]"
+                        />
+                        <span>Schedule For Later</span>
+                      </label>
+                    </div>
+
+                    {sendOption === 'later' && (
+                      <div className="pt-3 border-t border-slate-200/60 grid grid-cols-2 gap-4 animate-fadeIn">
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Date</label>
+                          <input
+                            type="date"
+                            required
+                            min={new Date().toISOString().split('T')[0]}
+                            value={scheduleDate}
+                            onChange={(e) => setScheduleDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Time</label>
+                          <input
+                            type="time"
+                            required
+                            value={scheduleTime}
+                            onChange={(e) => setScheduleTime(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all"
+                          />
+                        </div>
+                        <div className="col-span-2 text-[10px] text-slate-400 font-medium">
+                          Displaying in your local timezone: <span className="font-bold text-slate-600">{userTimezone}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                 </div>
+
 
                 {/* Right Column: Recipients Selection */}
                 <div className="lg:col-span-5 space-y-5">

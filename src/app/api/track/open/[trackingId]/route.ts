@@ -12,7 +12,7 @@ export async function GET(
 
     // Atomically update opened_at if it's currently null to prevent multiple increments/overwrites
     await db.query(
-      "UPDATE Clients SET opened_at = NOW() WHERE tracking_id = ? AND opened_at IS NULL",
+      "UPDATE Clients SET opened_at = UTC_TIMESTAMP() WHERE tracking_id = ? AND opened_at IS NULL",
       [trackingId]
     );
   } catch (error) {
