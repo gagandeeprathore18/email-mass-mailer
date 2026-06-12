@@ -67,14 +67,14 @@ export default function CreateCampaignPage() {
       if (res.ok) {
         const data = await res.json();
         const accounts: SmtpAccount[] = data.smtpAccounts || [];
-        
+
         // Filter active & verified
         const activeVerified = accounts.filter(acc => {
           const verified = acc.is_verified === true || Number(acc.is_verified) === 1;
           const active = acc.is_active === true || Number(acc.is_active) === 1;
           return verified && active;
         });
-        
+
         setSmtpAccounts(activeVerified);
         if (activeVerified.length > 0) {
           setSelectedSmtpId(activeVerified[0].id.toString());
@@ -181,13 +181,13 @@ export default function CreateCampaignPage() {
     for (const f of files) {
       // Allow case insensitive checking or common mime types
       const fileType = f.type || '';
-      const isAllowed = allowedTypes.includes(fileType) || 
-                        f.name.endsWith('.pdf') || 
-                        f.name.endsWith('.doc') || 
-                        f.name.endsWith('.docx') || 
-                        f.name.endsWith('.jpg') || 
-                        f.name.endsWith('.jpeg') || 
-                        f.name.endsWith('.png');
+      const isAllowed = allowedTypes.includes(fileType) ||
+        f.name.endsWith('.pdf') ||
+        f.name.endsWith('.doc') ||
+        f.name.endsWith('.docx') ||
+        f.name.endsWith('.jpg') ||
+        f.name.endsWith('.jpeg') ||
+        f.name.endsWith('.png');
 
       if (!isAllowed) {
         setFormError(`Invalid attachment type: ${f.name}. Supported formats: PDF, DOC, DOCX, JPG, JPEG, PNG.`);
@@ -264,7 +264,7 @@ export default function CreateCampaignPage() {
     formData.append('body', body);
     formData.append('smtpAccountId', selectedSmtpId);
     formData.append('scheduledAt', scheduledAtISO);
-    
+
     // Explicitly check selected mode or just what is present
     if (file) {
       formData.append('file', file);
@@ -347,7 +347,7 @@ export default function CreateCampaignPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900 flex flex-col font-sans">
-      
+
       {/* Top Navbar */}
       <nav className="sticky top-4 z-40 mx-auto w-[calc(100%-4rem)] max-w-7xl bg-white/70 backdrop-blur-md border border-slate-200/50 rounded-2xl shadow-lg px-8 py-3 flex items-center justify-between transition-all mt-4">
         <div className="flex items-center space-x-6">
@@ -359,9 +359,9 @@ export default function CreateCampaignPage() {
               Email Marketing
             </span>
           </Link>
-          
+
           <div className="h-6 w-px bg-slate-200" />
- 
+
           <div className="flex items-center space-x-2">
             <span className="font-bold text-sm text-slate-700">
               Compose Campaign
@@ -369,8 +369,8 @@ export default function CreateCampaignPage() {
           </div>
         </div>
         <div>
-          <Link 
-            href="/dashboard" 
+          <Link
+            href="/dashboard"
             className="px-4 py-2 border border-slate-200 hover:bg-slate-50 bg-white/50 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer inline-flex items-center space-x-1.5"
           >
             <span>Back to Dashboard</span>
@@ -403,8 +403,8 @@ export default function CreateCampaignPage() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 animate-scaleUp">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Enter Recipient Emails</h3>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setShowManualModal(false)}
                 className="text-slate-400 hover:text-slate-600 text-lg font-bold"
               >
@@ -441,7 +441,7 @@ export default function CreateCampaignPage() {
 
       {/* Main Container */}
       <main className="flex-1 p-8 max-w-7xl w-full mx-auto space-y-8">
-        
+
         {/* Title */}
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Create Mailing Campaign</h1>
@@ -450,11 +450,11 @@ export default function CreateCampaignPage() {
 
         {/* Form Container Card */}
         <div className="w-full bg-white rounded-2xl shadow-sm border border-slate-200/60 grid grid-cols-1 md:grid-cols-4 min-h-[660px] overflow-hidden">
-          
+
           {/* Left Side: Protocol and Execution */}
           <div className="bg-[#fafafc] border-r border-slate-200/60 p-6 flex flex-col justify-between">
             <div className="space-y-6">
-              
+
               {/* Protocol Account Pickers */}
               <div>
                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Protocol</span>
@@ -475,11 +475,10 @@ export default function CreateCampaignPage() {
                         key={acc.id}
                         type="button"
                         onClick={() => setSelectedSmtpId(acc.id.toString())}
-                        className={`w-full flex items-center space-x-3 p-3 rounded-xl border text-left transition-all ${
-                          selectedSmtpId === acc.id.toString()
+                        className={`w-full flex items-center space-x-3 p-3 rounded-xl border text-left transition-all ${selectedSmtpId === acc.id.toString()
                             ? 'bg-white border-[#5038ED] shadow-sm text-slate-900 font-semibold ring-2 ring-[#5038ED]/10'
                             : 'bg-white/40 border-slate-200/60 text-slate-500 hover:bg-white/80 hover:text-slate-700'
-                        }`}
+                          }`}
                       >
                         <div className={`p-1.5 rounded-lg ${selectedSmtpId === acc.id.toString() ? 'bg-indigo-50 text-[#5038ED]' : 'bg-slate-100 text-slate-400'}`}>
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -524,10 +523,10 @@ export default function CreateCampaignPage() {
 
           {/* Right Side: Email Composer */}
           <div className="md:col-span-3 p-8 flex flex-col justify-between relative bg-white">
-            
+
             <form onSubmit={handleCreateCampaign} className="flex flex-col flex-1 justify-between">
               <div className="space-y-2">
-                
+
                 {/* Form Header */}
                 <div className="flex justify-between items-start border-b border-slate-100 pb-4">
                   <div>
@@ -538,8 +537,8 @@ export default function CreateCampaignPage() {
                       Draft ready to dispatch • Auto-saved local state
                     </p>
                   </div>
-                  <Link 
-                    href="/dashboard" 
+                  <Link
+                    href="/dashboard"
                     className="text-slate-300 hover:text-slate-600 transition-colors p-1"
                   >
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -647,15 +646,15 @@ export default function CreateCampaignPage() {
 
               {/* Footer Actions / Scheduling Popover */}
               <div className="border-t border-slate-100 pt-4 flex justify-between items-center relative mt-4">
-                
+
                 {/* Scheduling popover overlay */}
                 {showSchedulePopover && (
                   <div className="absolute bottom-16 left-0 md:right-0 md:left-auto z-40 bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-80 space-y-4 animate-slideUp">
                     <div className="flex justify-between items-center">
                       <span className="block text-[10px] font-bold text-slate-800 uppercase tracking-wider">Schedule Configuration</span>
-                      <button 
-                        type="button" 
-                        onClick={() => setShowSchedulePopover(false)} 
+                      <button
+                        type="button"
+                        onClick={() => setShowSchedulePopover(false)}
                         className="text-slate-400 hover:text-slate-600 text-lg font-bold"
                       >
                         &times;
@@ -749,11 +748,10 @@ export default function CreateCampaignPage() {
                   <button
                     type="button"
                     onClick={() => setShowSchedulePopover(!showSchedulePopover)}
-                    className={`px-5 py-2 border rounded-full text-xs font-semibold shadow-sm transition-all cursor-pointer ${
-                      sendOption === 'later'
+                    className={`px-5 py-2 border rounded-full text-xs font-semibold shadow-sm transition-all cursor-pointer ${sendOption === 'later'
                         ? 'bg-indigo-50 border-[#d3cbff] text-[#5038ED] font-bold'
                         : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
+                      }`}
                   >
                     {sendOption === 'later' && scheduleDate && scheduleTime
                       ? `Scheduled: ${scheduleDate} ${scheduleTime}`

@@ -16,29 +16,37 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const isAuthPage = pathname === '/admin/auth';
+
   useEffect(() => {
     async function checkUser() {
       try {
         const res = await fetch('/api/auth/me');
         if (!res.ok) {
-          router.push('/auth');
+          if (!isAuthPage) {
+            router.push('/admin/auth');
+          }
           return;
         }
         const data = await res.json();
         if (data.authenticated && data.user?.role === 'admin') {
           setUser(data.user);
         } else {
-          router.push('/dashboard');
+          if (!isAuthPage) {
+            router.push('/dashboard');
+          }
         }
       } catch (err) {
         console.error('Failed to verify admin authentication', err);
-        router.push('/auth');
+        if (!isAuthPage) {
+          router.push('/admin/auth');
+        }
       } finally {
         setLoading(false);
       }
     }
     checkUser();
-  }, [router]);
+  }, [router, isAuthPage]);
 
   const handleLogout = async () => {
     try {
@@ -52,7 +60,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   };
 
-  if (loading) {
+  if (loading && !isAuthPage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f5f7fb] text-slate-500 font-sans">
         <div className="flex flex-col items-center space-y-4">
@@ -90,51 +98,63 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </Link>
 
           {/* Navigation Links */}
-          <div className="flex items-center space-x-6">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`py-2 text-sm font-semibold relative transition-colors ${
-                    isActive ? 'text-[#5038ED]' : 'text-slate-500 hover:text-slate-900'
-                  }`}
-                >
-                  {item.name}
-                  {isActive && (
-                    <span className="absolute bottom-[-13px] left-0 right-0 h-[3px] bg-[#5038ED] rounded-full" />
-                  )}
-                </Link>
-              );
-            })}
-          </div>
+          {!isAuthPage && (
+            <div className="flex items-center space-x-6">
+              {navItems.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={`py-2 text-sm font-semibold relative transition-colors ${
+                      isActive ? 'text-[#5038ED]' : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    {item.name}
+                    {isActive && (
+                      <span className="absolute bottom-[-13px] left-0 right-0 h-[3px] bg-[#5038ED] rounded-full" />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* User Stats & Actions */}
         <div className="flex items-center space-x-5">
-          <div className="flex items-center space-x-4 pl-2 border-l border-slate-200">
-            <div className="flex flex-col text-right leading-tight">
-              <span className="text-xs font-bold text-slate-700 truncate max-w-[150px]">
-                {user?.name || 'Administrator'}
-              </span>
-              <span className="text-[9px] text-slate-400 truncate max-w-[150px]">
-                {user?.email}
+          {isAuthPage ? (
+            <div className="flex items-center space-x-3 text-xs font-semibold text-slate-500">
+              <span>System Status:</span>
+              <span className="flex items-center text-emerald-600 font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
+                ONLINE
               </span>
             </div>
-            <Link
-              href="/dashboard"
-              className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-[#5038ED] text-xs font-bold rounded-lg transition-all cursor-pointer"
-            >
-              User Dashboard
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 hover:text-rose-600 text-slate-700 text-xs font-semibold rounded-lg transition-all cursor-pointer"
-            >
-              Logout
-            </button>
-          </div>
+          ) : (
+            <div className="flex items-center space-x-4 pl-2 border-l border-slate-200">
+              <div className="flex flex-col text-right leading-tight">
+                <span className="text-xs font-bold text-slate-700 truncate max-w-[150px]">
+                  {user?.name || 'Administrator'}
+                </span>
+                <span className="text-[9px] text-slate-400 truncate max-w-[150px]">
+                  {user?.email}
+                </span>
+              </div>
+              <Link
+                href="/dashboard"
+                className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-[#5038ED] text-xs font-bold rounded-lg transition-all cursor-pointer"
+              >
+                User Dashboard
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 hover:text-rose-600 text-slate-700 text-xs font-semibold rounded-lg transition-all cursor-pointer"
+              >
+                Logout
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 

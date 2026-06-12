@@ -1,9 +1,57 @@
 'use client';
 
-import React from 'react';
-import Link from 'next/link';
+import React, { useState } from 'react';
+import type { FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function LandingPage() {
+export default function RootPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  
+  // Form fields state
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    const endpoint = '/api/auth/login';
+    const payload = { email, password };
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Something went wrong. Please check your credentials.');
+      }
+
+      // Redirect based on user role
+      if (data.user?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
+      router.refresh();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex flex-col justify-between font-sans selection:bg-[#5038ED] selection:text-white">
       {/* Top Navbar */}
@@ -31,74 +79,72 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero Content Section */}
-      <main className="max-w-7xl w-full mx-auto px-8 py-12 flex flex-col items-center justify-center text-center my-auto">
-        <div className="max-w-4xl mx-auto flex flex-col items-center">
-          <h1 className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight leading-none mb-6">
-            High-Performance <br />
-            <span className="text-[#5038ED] bg-gradient-to-r from-[#5038ED] to-[#705bf2] bg-clip-text text-transparent">
-              Organization Mailing System
-            </span>
-          </h1>
-          <p className="text-slate-500 text-sm max-w-xl mb-12 font-medium leading-relaxed">
-            Bulk mailing infrastructure for businesses. Administrators control SMTP servers, accounts, and assignments, while users design and send campaigns.
-          </p>
-        </div>
-
-        {/* Portal Entry Choices */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl">
-          {/* Admin Card */}
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-            <div className="text-left mb-8">
-              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-[#5038ED] mb-5">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-extrabold text-slate-800 tracking-tight">Admin Administration</h3>
-              <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                Configure provider-agnostic SMTP networks, create user profiles, manage routing access permissions, and audit logs.
-              </p>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Link
-                href="/auth?mode=login"
-                className="flex-1 py-3 bg-[#5038ED] hover:bg-[#402bd6] text-white text-center text-xs font-bold rounded-xl shadow-md transition-all"
-              >
-                Admin Login
-              </Link>
-              <Link
-                href="/auth?mode=signup"
-                className="flex-1 py-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-center text-xs font-bold rounded-xl transition-all"
-              >
-                Register Admin
-              </Link>
-            </div>
+      {/* Main Form Content */}
+      <main className="flex-1 flex items-center justify-center p-6 my-8">
+        {/* Container card */}
+        <div className="w-full max-w-lg bg-white border border-slate-200/60 shadow-xl rounded-2xl p-8 md:p-10 transition-all duration-300">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[#5038ED] mb-2 leading-none">
+              Queuvo
+            </h1>
+            <p className="text-slate-500 text-sm mt-3">
+              Sign in to access your mailing dashboard.
+            </p>
           </div>
 
-          {/* User Card */}
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-            <div className="text-left mb-8">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 mb-5">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 19v-8.93a2 2 0 01.89-1.664l8-5.333a2 2 0 012.22 0l8 5.333A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-5.625-3.75" />
-                </svg>
+          {error && (
+            <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-xs flex items-start space-x-2.5">
+              <svg className="w-4.5 h-4.5 shrink-0 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span className="break-words font-medium">{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all text-sm"
+                  placeholder="you@example.com"
+                />
               </div>
-              <h3 className="text-lg font-extrabold text-slate-800 tracking-tight">User Campaign Operations</h3>
-              <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                Log in to write campaign messages, upload recipient rosters, upload attachments, schedule mailings, and view performance reports.
-              </p>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#5038ED] focus:ring-1 focus:ring-[#5038ED] transition-all text-sm"
+                  placeholder="••••••••"
+                />
+              </div>
             </div>
 
-            <Link
-              href="/auth?mode=login"
-              className="w-full py-3 bg-slate-900 hover:bg-slate-850 text-white text-center text-xs font-bold rounded-xl shadow-md transition-all"
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 py-3 bg-[#5038ED] hover:bg-[#402bd6] text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-indigo-500/10 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
             >
-              Sign In to Campaigns
-            </Link>
-          </div>
+              {loading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  {'Signing in...'}
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
         </div>
       </main>
 

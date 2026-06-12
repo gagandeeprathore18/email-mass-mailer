@@ -52,7 +52,7 @@ export default function SmtpTunnelsPage() {
       try {
         const res = await fetch('/api/auth/me');
         if (!res.ok) {
-          router.push('/auth');
+          router.push('/');
           return;
         }
         const data = await res.json();
@@ -62,7 +62,7 @@ export default function SmtpTunnelsPage() {
         }
       } catch (err) {
         console.error('Auth error', err);
-        router.push('/auth');
+        router.push('/');
       } finally {
         setLoadingUser(false);
       }

@@ -20,12 +20,18 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Redirect old /auth path to /
+  if (pathname === '/auth') {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
   const isProtectedPath = 
     pathname.startsWith('/dashboard') || 
     pathname.startsWith('/api/campaigns') || 
     pathname.startsWith('/api/send');
 
-  const isAdminPath = pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
+  const isAdminPath = (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) && pathname !== '/admin/auth';
+  const isAdminAuthPath = pathname === '/admin/auth';
   const isAuthPath = pathname === '/auth' || pathname === '/';
 
   // If trying to access admin path
@@ -34,7 +40,7 @@ export async function middleware(request: NextRequest) {
       if (pathname.startsWith('/api/')) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      const response = NextResponse.redirect(new URL('/auth', request.url));
+      const response = NextResponse.redirect(new URL('/admin/auth', request.url));
       response.cookies.delete('auth_token');
       return response;
     }
@@ -49,12 +55,19 @@ export async function middleware(request: NextRequest) {
 
   // If trying to access standard protected path
   if (isProtectedPath && !payload) {
-    const response = NextResponse.redirect(new URL('/auth', request.url));
+    const response = NextResponse.redirect(new URL('/', request.url));
     response.cookies.delete('auth_token');
     return response;
   }
 
   if (isAuthPath && payload) {
+    if (payload.role === 'admin') {
+      return NextResponse.redirect(new URL('/admin', request.url));
+    }
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  if (isAdminAuthPath && payload) {
     if (payload.role === 'admin') {
       return NextResponse.redirect(new URL('/admin', request.url));
     }
@@ -68,6 +81,7 @@ export const config = {
   matcher: [
     '/',
     '/auth',
+    '/admin/auth',
     '/dashboard/:path*',
     '/admin/:path*',
     '/api/campaigns/:path*',
