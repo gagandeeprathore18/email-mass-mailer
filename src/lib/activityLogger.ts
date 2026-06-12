@@ -8,8 +8,8 @@ import db from './db';
 export async function logActivity(userId: number, action: string): Promise<void> {
   try {
     await db.query(
-      'INSERT INTO activity_logs (user_id, action) VALUES (?, ?)',
-      [userId, action]
+      'INSERT INTO activity_logs (user_id, action, created_at) VALUES (?, ?, ?)',
+      [userId, action, new Date()]
     );
   } catch (error) {
     console.error('Failed to log activity:', error);

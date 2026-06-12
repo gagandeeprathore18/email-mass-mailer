@@ -150,7 +150,7 @@ export default function RootPage() {
 
       {/* Footer */}
       <footer className="max-w-7xl w-full mx-auto px-8 py-8 border-t border-slate-200/40 text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-        &copy; {new Date().getFullYear()} Queuvo Mail. Secure, Provider-Agnostic, High-Volume Delivery.
+        &copy; {new Date().getFullYear()} Queuvo Mail. Secure and High-Volume Delivery.
       </footer>
     </div>
   );

@@ -83,7 +83,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   ];
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-900 flex flex-col font-sans">
+    <div className={`min-h-screen ${isAuthPage ? 'h-screen overflow-hidden' : ''} bg-[#f5f7fb] text-slate-900 flex flex-col font-sans`}>
       {/* Top Navbar */}
       <nav className="sticky top-4 z-40 mx-auto w-[calc(100%-4rem)] max-w-7xl bg-white/70 backdrop-blur-md border border-slate-200/50 rounded-2xl shadow-lg px-8 py-3 flex items-center justify-between transition-all mt-4">
         <div className="flex items-center space-x-12">
@@ -141,12 +141,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   {user?.email}
                 </span>
               </div>
-              <Link
+              {/* <Link
                 href="/dashboard"
                 className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-[#5038ED] text-xs font-bold rounded-lg transition-all cursor-pointer"
               >
                 User Dashboard
-              </Link>
+              </Link> */}
               <button
                 onClick={handleLogout}
                 className="px-3.5 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 hover:text-rose-600 text-slate-700 text-xs font-semibold rounded-lg transition-all cursor-pointer"
@@ -159,12 +159,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </nav>
 
       {/* Main Content Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-8 py-8">
+      <main className={`flex-1 max-w-7xl w-full mx-auto px-8 ${isAuthPage ? 'flex items-center justify-center py-2' : 'py-8'}`}>
         {children}
       </main>
 
       {/* Footer */}
-      <footer className="max-w-7xl w-full mx-auto px-8 py-6 text-center text-xs text-slate-400 mt-12 border-t border-slate-200/40">
+      <footer className={`max-w-7xl w-full mx-auto px-8 py-6 text-center text-xs text-slate-400 border-t border-slate-200/40 ${isAuthPage ? '' : 'mt-12'}`}>
         &copy; {new Date().getFullYear()} Queuvo. Admin Portal Control Center.
       </footer>
     </div>
