@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     );
 
     await logActivity(
-      adminUser.id, 
+      adminUser.id,
       `Admin Assigned SMTP Account: ${smtpRow[0].label} to User: ${userRow[0].email}`
     );
 
