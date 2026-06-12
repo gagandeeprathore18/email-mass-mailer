@@ -20,9 +20,8 @@ interface Campaign {
 
 interface UserProfile {
   email: string;
-  smtp_host: string;
-  smtp_email: string;
-  smtp_port: number;
+  role: 'admin' | 'user';
+  name?: string | null;
 }
 
 interface SmtpAccount {
@@ -113,6 +112,10 @@ export default function DashboardPage() {
         const data = await res.json();
         if (data.authenticated) {
           setUser(data.user);
+          if (data.user?.role === 'admin') {
+            router.push('/admin');
+            return;
+          }
         } else {
           router.push('/auth');
         }
@@ -251,6 +254,14 @@ export default function DashboardPage() {
                 {user?.email || 'user@example.com'}
               </span>
             </div>
+            {user?.role === 'admin' && (
+              <Link 
+                href="/admin" 
+                className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-[#5038ED] text-xs font-bold rounded-lg transition-all cursor-pointer"
+              >
+                Admin Portal
+              </Link>
+            )}
             <button 
               onClick={handleLogout} 
               className="px-3.5 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 hover:text-rose-600 text-slate-700 text-xs font-semibold rounded-lg transition-all cursor-pointer"
@@ -275,15 +286,25 @@ export default function DashboardPage() {
                 <p className="text-slate-500 text-sm mt-1.5">Manage your high-volume mail infrastructure and active campaigns.</p>
               </div>
               <div className="flex items-center space-x-3">
-                <Link
-                  href="/dashboard/smtp-tunnels"
-                  className="inline-flex items-center px-4.5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl transition-all cursor-pointer space-x-2"
-                >
-                  <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                  <span>Add SMTP Tunnel</span>
-                </Link>
+                {user?.role === 'admin' ? (
+                  <>
+                    <Link
+                      href="/admin"
+                      className="inline-flex items-center px-4.5 py-2.5 border border-indigo-200 hover:bg-indigo-50 text-[#5038ED] bg-indigo-50/20 text-sm font-semibold rounded-xl transition-all cursor-pointer space-x-2 animate-fadeIn"
+                    >
+                      <span>Admin Dashboard</span>
+                    </Link>
+                    <Link
+                      href="/dashboard/smtp-tunnels"
+                      className="inline-flex items-center px-4.5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl transition-all cursor-pointer space-x-2"
+                    >
+                      <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                      </svg>
+                      <span>Add SMTP Tunnel</span>
+                    </Link>
+                  </>
+                ) : null}
                 <Link
                   href="/dashboard/create-campaign"
                   className="inline-flex items-center px-4.5 py-2.5 bg-[#5038ED] hover:bg-[#402bd6] text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-500/10 hover:shadow-lg transition-all cursor-pointer space-x-2"
@@ -381,7 +402,9 @@ export default function DashboardPage() {
               {/* Card 4 */}
               <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SMTP Active</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    {user?.role === 'admin' ? 'SMTP Active' : 'Assigned SMTPs'}
+                  </span>
                   <div className="flex items-baseline mt-2">
                     <span className="text-3xl font-extrabold text-slate-900">{activeSmtpCount} <span className="text-lg text-slate-400 font-normal">/ {totalSmtpCount}</span></span>
                   </div>
@@ -570,13 +593,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Bottom Section: Delivery Performance & SMTP Tunnel Status */}
+            </div>            {/* Bottom Section: Delivery Performance & SMTP Tunnel Status */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
               {/* Column 1: Delivery Performance (Bar Chart) */}
-              <div className="lg:col-span-7 bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+              <div className={user?.role === 'admin' ? 'lg:col-span-7 bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between' : 'lg:col-span-12 bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm flex flex-col justify-between'}>
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Delivery Performance</h2>
                   <p className="text-slate-400 text-xs mt-0.5">Real-time throughput logs and nodes performance analytics.</p>
@@ -606,7 +627,7 @@ export default function DashboardPage() {
                       {stats.deliveryPerformance.chart.map((dayData, idx) => {
                         const maxVal = Math.max(...stats.deliveryPerformance.chart.map(c => c.count), 1);
                         const heightPct = dayData.count > 0 
-                          ? Math.max(10, Math.round((dayData.count / maxVal) * 100))
+                           ? Math.max(10, Math.round((dayData.count / maxVal) * 100))
                           : 4;
                         return (
                           <div key={idx} className="flex flex-col items-center z-10 w-[10%] group h-full justify-end">
@@ -650,55 +671,57 @@ export default function DashboardPage() {
               </div>
 
               {/* Column 2: SMTP Tunnel Status Card (Purple background) */}
-              <div className="lg:col-span-5 bg-[#5038ED] rounded-2xl p-6 text-white shadow-lg shadow-indigo-500/10 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-lg font-bold">SMTP Tunnel Status</h3>
-                  
-                  {/* Status rows */}
-                  <div className="mt-5 space-y-3">
-                    {loadingStats ? (
-                      <div className="py-6 flex flex-col items-center justify-center text-white/60">
-                        <svg className="animate-spin h-5 w-5 text-white/40 mb-2" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        <span className="text-[10px]">Loading status...</span>
-                      </div>
-                    ) : !stats || stats.smtpTunnels.length === 0 ? (
-                      <div className="py-6 text-center text-xs text-white/60">
-                        No SMTP Tunnels configured
-                      </div>
-                    ) : (
-                      stats.smtpTunnels.slice(0, 3).map((tunnel, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-white/10 rounded-xl">
-                          <span className="text-xs font-semibold truncate max-w-[160px]" title={tunnel.label}>
-                            {tunnel.label}
-                          </span>
-                          <span className={`inline-flex items-center text-[10px] font-bold ${
-                            tunnel.status === 'Healthy' 
-                              ? 'text-emerald-300' 
-                              : tunnel.status === 'Idle'
-                              ? 'text-slate-300'
-                              : 'text-rose-300'
-                          }`}>
-                            {tunnel.status === 'Healthy' && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 mr-1.5 animate-pulse" />
-                            )}
-                            {tunnel.status}
-                          </span>
+              {user?.role === 'admin' && (
+                <div className="lg:col-span-5 bg-[#5038ED] rounded-2xl p-6 text-white shadow-lg shadow-indigo-500/10 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold">SMTP Tunnel Status</h3>
+                    
+                    {/* Status rows */}
+                    <div className="mt-5 space-y-3">
+                      {loadingStats ? (
+                        <div className="py-6 flex flex-col items-center justify-center text-white/60">
+                          <svg className="animate-spin h-5 w-5 text-white/40 mb-2" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span className="text-[10px]">Loading status...</span>
                         </div>
-                      ))
-                    )}
+                      ) : !stats || stats.smtpTunnels.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-white/60">
+                          No SMTP Tunnels configured
+                        </div>
+                      ) : (
+                        stats.smtpTunnels.slice(0, 3).map((tunnel, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-white/10 rounded-xl">
+                            <span className="text-xs font-semibold truncate max-w-[160px]" title={tunnel.label}>
+                              {tunnel.label}
+                            </span>
+                            <span className={`inline-flex items-center text-[10px] font-bold ${
+                              tunnel.status === 'Healthy' 
+                                ? 'text-emerald-300' 
+                                : tunnel.status === 'Idle'
+                                ? 'text-slate-300'
+                                : 'text-rose-300'
+                            }`}>
+                              {tunnel.status === 'Healthy' && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 mr-1.5 animate-pulse" />
+                              )}
+                              {tunnel.status}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <Link
-                  href="/dashboard/smtp-tunnels"
-                  className="w-full mt-6 py-2.5 bg-white text-[#5038ED] hover:bg-slate-50 transition-colors text-xs font-bold rounded-xl cursor-pointer text-center block"
-                >
-                  Review Tunnel Configuration
-                </Link>
-              </div>
+                  <Link
+                    href="/dashboard/smtp-tunnels"
+                    className="w-full mt-6 py-2.5 bg-white text-[#5038ED] hover:bg-slate-50 transition-colors text-xs font-bold rounded-xl cursor-pointer text-center block"
+                  >
+                    Review Tunnel Configuration
+                  </Link>
+                </div>
+              )}
 
             </div>
           </div>

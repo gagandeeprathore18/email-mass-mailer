@@ -3,6 +3,8 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import db from '@/lib/db';
 import * as XLSX from 'xlsx';
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { logActivity } from '@/lib/activityLogger';
+
 
 interface CampaignRow extends RowDataPacket {
   id: number;
@@ -109,8 +111,15 @@ export async function POST(request: Request) {
     }
 
     const smtpAccount = smtpRows[0];
-    if (smtpAccount.user_id !== user.id) {
-      return NextResponse.json({ error: 'SMTP account not found' }, { status: 404 }); // Do not leak existence of other users' accounts
+
+    // Check assignments
+    const [accessRows] = await db.query<RowDataPacket[]>(
+      'SELECT id FROM user_smtp_access WHERE user_id = ? AND smtp_account_id = ?',
+      [user.id, smtpAccountId]
+    );
+
+    if (user.role !== 'admin' && accessRows.length === 0) {
+      return NextResponse.json({ error: 'Unauthorized to use this SMTP account' }, { status: 403 });
     }
 
     if (!smtpAccount.is_active) {
@@ -195,7 +204,7 @@ export async function POST(request: Request) {
       // Insert Campaign
       const [campResult] = await connection.query<ResultSetHeader>(
         'INSERT INTO Campaigns (user_id, subject, body, status, smtp_account_id, scheduled_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [user.id, subject, body, 'queued', smtpAccountId, scheduledAt]
+        [user.id, subject, body, 'draft', smtpAccountId, scheduledAt]
       );
       const campaignId = campResult.insertId;
 
@@ -208,6 +217,13 @@ export async function POST(request: Request) {
       );
 
       await connection.commit();
+
+      // Log activity
+      await logActivity(
+        user.id,
+        scheduledAt ? `User Scheduled Campaign: ${subject}` : `User Executed Campaign: ${subject}`
+      );
+
       return NextResponse.json({
         success: true,
         campaignId,

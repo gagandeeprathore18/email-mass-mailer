@@ -18,15 +18,24 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Return: id, label, from_email, is_verified, is_active
-    // Sort by newest first (created_at DESC)
-    const [smtpAccounts] = await db.query<SmtpAccountRow[]>(
-      `SELECT id, label, from_email, is_verified, is_active 
-       FROM smtp_accounts 
-       WHERE user_id = ? 
-       ORDER BY created_at DESC`,
-      [user.id]
-    );
+    let query = '';
+    let params: any[] = [];
+
+    // Admins see all SMTP accounts, users see only assigned ones
+    if (user.role === 'admin') {
+      query = `SELECT id, label, from_email, is_verified, is_active 
+               FROM smtp_accounts 
+               ORDER BY created_at DESC`;
+    } else {
+      query = `SELECT sa.id, sa.label, sa.from_email, sa.is_verified, sa.is_active 
+               FROM smtp_accounts sa
+               JOIN user_smtp_access usa ON sa.id = usa.smtp_account_id
+               WHERE usa.user_id = ? AND sa.is_active = 1
+               ORDER BY sa.created_at DESC`;
+      params.push(user.id);
+    }
+
+    const [smtpAccounts] = await db.query<SmtpAccountRow[]>(query, params);
 
     return NextResponse.json({ success: true, smtpAccounts });
   } catch (error) {
@@ -44,6 +53,11 @@ export async function POST(request: Request) {
     const user = await getAuthenticatedUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Regular users cannot add SMTP accounts
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const { label, host, port, username, password, from_email } = await request.json();
@@ -82,9 +96,9 @@ export async function POST(request: Request) {
     // 3. Save to database
     const [result] = await db.query<ResultSetHeader>(
       `INSERT INTO smtp_accounts 
-       (user_id, label, host, port, username, encrypted_password, from_email, is_verified, is_active, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0)`,
-      [user.id, label, host, portNum, username, encryptedPassword, from_email]
+       (user_id, label, host, port, username, encrypted_password, from_email, is_verified, is_active, is_default, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?)`,
+      [user.id, label, host, portNum, username, encryptedPassword, from_email, user.id]
     );
 
     return NextResponse.json({

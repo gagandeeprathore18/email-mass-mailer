@@ -224,6 +224,19 @@ async function processCampaign(campaign: CampaignRow) {
 // Continuous loop wrapper
 async function startWorker() {
   console.log('Queuvo Background Mail Worker daemon started.');
+  
+  // Reset any orphaned 'processing' campaigns back to 'queued' on startup
+  try {
+    const [resetResult] = await db.query<ResultSetHeader>(
+      "UPDATE Campaigns SET status = 'queued' WHERE status = 'processing'"
+    );
+    if (resetResult.affectedRows > 0) {
+      console.log(`Reset ${resetResult.affectedRows} orphaned 'processing' campaigns back to 'queued'.`);
+    }
+  } catch (err) {
+    console.error('Failed to reset orphaned campaigns on startup:', err);
+  }
+
   while (true) {
     await checkAndProcessQueue();
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));

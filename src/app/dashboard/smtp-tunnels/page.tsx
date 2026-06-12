@@ -55,6 +55,11 @@ export default function SmtpTunnelsPage() {
           router.push('/auth');
           return;
         }
+        const data = await res.json();
+        if (data.user?.role !== 'admin') {
+          router.push('/dashboard');
+          return;
+        }
       } catch (err) {
         console.error('Auth error', err);
         router.push('/auth');

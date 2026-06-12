@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev & npx tsx worker.ts",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "next start & npx tsx worker.ts",
+    "lint": "eslint",
+    "worker": "npx tsx worker.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

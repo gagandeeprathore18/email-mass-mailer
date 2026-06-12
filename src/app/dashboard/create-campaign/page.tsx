@@ -464,11 +464,9 @@ export default function CreateCampaignPage() {
                     <div className="h-12 bg-white/50 border border-slate-200 rounded-xl animate-pulse" />
                   </div>
                 ) : smtpAccounts.length === 0 ? (
-                  <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl space-y-2">
-                    <p>No active SMTP accounts.</p>
-                    <Link href="/dashboard/smtp-tunnels" className="text-[#5038ED] hover:underline font-bold block text-[10px] uppercase tracking-wider">
-                      + Add SMTP Tunnel
-                    </Link>
+                  <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl">
+                    <p className="font-bold">No SMTP accounts assigned.</p>
+                    <p className="text-[10px] text-slate-500 font-semibold mt-1">Please contact your administrator.</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -617,6 +615,8 @@ export default function CreateCampaignPage() {
                     className="flex-1 border-none focus:ring-0 p-0 text-slate-800 placeholder-slate-400 text-sm font-semibold focus:outline-none"
                   />
                 </div>
+
+
 
                 {/* Body Area */}
                 <textarea

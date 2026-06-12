@@ -4,6 +4,8 @@ import db from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 import { RowDataPacket } from 'mysql2/promise';
+import { logActivity } from '@/lib/activityLogger';
+
 
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
@@ -119,6 +121,9 @@ export async function POST(request: Request) {
     );
 
     const insertId = (insertResult as any).insertId;
+
+    // Log activity
+    await logActivity(user.id, `User Uploaded Attachment: ${file.name}`);
 
     return NextResponse.json({
       success: true,

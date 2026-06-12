@@ -5,6 +5,7 @@ import db from '@/lib/db';
 import { signToken } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { ResultSetHeader } from 'mysql2/promise';
+import { encryptPassword } from '@/lib/encryption';
 
 export async function POST(request: Request) {
   try {
@@ -46,14 +47,22 @@ export async function POST(request: Request) {
 
     try {
       const [result] = await db.query<ResultSetHeader>(
-        `INSERT INTO Users (email, password_hash, smtp_host, smtp_email, smtp_pass, smtp_port) 
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO Users (email, password_hash, smtp_host, smtp_email, smtp_pass, smtp_port, role) 
+         VALUES (?, ?, ?, ?, ?, ?, 'admin')`,
         [email, passwordHash, smtp_host, smtp_email, smtp_pass, portInt]
       );
 
       const userId = result.insertId;
 
-      const token = await signToken({ id: userId, email });
+      // Automatically create an entry in the central smtp_accounts table
+      const encryptedPassword = encryptPassword(smtp_pass);
+      await db.query(
+        `INSERT INTO smtp_accounts (user_id, label, host, port, username, encrypted_password, from_email, is_active, is_verified, created_by) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+        [userId, `Admin SMTP (${smtp_host})`, smtp_host, portInt, smtp_email, encryptedPassword, smtp_email, userId]
+      );
+
+      const token = await signToken({ id: userId, email, role: 'admin', name: null });
       const cookieStore = await cookies();
       cookieStore.set('auth_token', token, {
         httpOnly: true,
@@ -65,7 +74,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
-        user: { id: userId, email },
+        user: { id: userId, email, role: 'admin' },
       });
     } catch (dbError: unknown) {
       console.error('Database Error during registration:', dbError);

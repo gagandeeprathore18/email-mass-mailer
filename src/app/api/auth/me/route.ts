@@ -9,6 +9,8 @@ interface UserProfileRow extends RowDataPacket {
   smtp_host: string;
   smtp_email: string;
   smtp_port: number;
+  role: 'admin' | 'user';
+  name: string | null;
 }
 
 export async function GET() {
@@ -19,7 +21,7 @@ export async function GET() {
     }
 
     const [users] = await db.query<UserProfileRow[]>(
-      'SELECT id, email, smtp_host, smtp_email, smtp_port FROM Users WHERE id = ?',
+      'SELECT id, email, smtp_host, smtp_email, smtp_port, role, name FROM Users WHERE id = ?',
       [tokenUser.id]
     );
 

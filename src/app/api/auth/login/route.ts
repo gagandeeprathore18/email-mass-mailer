@@ -9,6 +9,9 @@ interface UserRow extends RowDataPacket {
   id: number;
   email: string;
   password_hash: string;
+  name: string | null;
+  role: 'admin' | 'user';
+  is_active: number;
 }
 
 export async function POST(request: Request) {
@@ -23,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const [users] = await db.query<UserRow[]>(
-      'SELECT id, email, password_hash FROM Users WHERE email = ?',
+      'SELECT id, email, password_hash, name, role, is_active FROM Users WHERE email = ?',
       [email]
     );
 
@@ -35,6 +38,15 @@ export async function POST(request: Request) {
     }
 
     const user = users[0];
+
+    // Check if account is active
+    if (user.is_active === 0) {
+      return NextResponse.json(
+        { error: 'Your account has been disabled. Please contact your administrator.' },
+        { status: 403 }
+      );
+    }
+
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!passwordMatch) {
@@ -44,7 +56,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const token = await signToken({ id: user.id, email: user.email });
+    const token = await signToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    });
+
     const cookieStore = await cookies();
     cookieStore.set('auth_token', token, {
       httpOnly: true,
@@ -56,7 +74,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, role: user.role, name: user.name },
     });
   } catch (error) {
     console.error('Login Route Error:', error);

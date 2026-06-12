@@ -63,8 +63,13 @@ export async function POST(request: Request) {
     }
     const smtp = smtpAccounts[0];
 
-    // Verify ownership
-    if (smtp.user_id !== user.id) {
+    // Verify SMTP account assignment
+    const [accessRows] = await db.query<RowDataPacket[]>(
+      'SELECT id FROM user_smtp_access WHERE user_id = ? AND smtp_account_id = ?',
+      [user.id, campaign.smtp_account_id]
+    );
+
+    if (user.role !== 'admin' && accessRows.length === 0) {
       return NextResponse.json({ error: 'Unauthorized to use this SMTP account' }, { status: 403 });
     }
 

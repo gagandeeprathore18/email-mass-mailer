@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -17,6 +17,17 @@ export default function AuthPage() {
   const [smtpPort, setSmtpPort] = useState<string>('587');
   const [smtpEmail, setSmtpEmail] = useState<string>('');
   const [smtpPass, setSmtpPass] = useState<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'signup' || params.get('signup') === 'true') {
+        setIsSignUp(true);
+      } else if (params.get('mode') === 'login') {
+        setIsSignUp(false);
+      }
+    }
+  }, []);
 
   const handleToggleMode = () => {
     setIsSignUp(!isSignUp);
@@ -46,8 +57,12 @@ export default function AuthPage() {
         throw new Error(data.error || 'Something went wrong. Please check your credentials.');
       }
 
-      // Successful Auth -> Redirect to Dashboard
-      router.push('/dashboard');
+      // Redirect based on user role
+      if (data.user?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
       router.refresh();
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -70,7 +85,9 @@ export default function AuthPage() {
             Queuvo
           </h1>
           <p className="text-slate-500 text-sm">
-            {isSignUp ? 'Configure your SMTP settings to launch bulk campaigns' : 'Sign in to manage your high-performance delivery tunnels'}
+            {isSignUp 
+              ? 'Create an Administrator account to manage SMTP infrastructure, users, and campaigns.' 
+              : 'Sign in to access your mailing dashboard.'}
           </p>
         </div>
 
@@ -113,7 +130,7 @@ export default function AuthPage() {
           {/* SMTP Configuration Section (Only for SignUp) */}
           {isSignUp && (
             <div className="pt-5 border-t border-slate-100 space-y-4 transition-all duration-300">
-              <h3 className="text-sm font-bold text-[#5038ED] tracking-wide">SMTP Settings</h3>
+              <h3 className="text-sm font-bold text-[#5038ED] tracking-wide">System Default SMTP Settings</h3>
               
               <div className="grid grid-cols-3 gap-4">
                 <div className="col-span-2">
@@ -178,22 +195,22 @@ export default function AuthPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                {isSignUp ? 'Verifying SMTP & Registering...' : 'Signing in...'}
+                {isSignUp ? 'Verifying SMTP & Registering Admin...' : 'Signing in...'}
               </>
             ) : (
-              isSignUp ? 'Verify SMTP & Create Account' : 'Sign In'
+              isSignUp ? 'Verify SMTP & Register Admin' : 'Sign In'
             )}
           </button>
         </form>
 
         <div className="mt-8 pt-6 border-t border-slate-100 text-center">
           <p className="text-slate-500 text-xs font-semibold">
-            {isSignUp ? 'Already have an account?' : "Don't have an account yet?"}{' '}
+            {isSignUp ? 'Already have an administrator account?' : 'Need to register as an administrator?'}{' '}
             <button
               onClick={handleToggleMode}
               className="text-[#5038ED] hover:text-[#402bd6] font-bold focus:outline-none transition-colors cursor-pointer"
             >
-              {isSignUp ? 'Sign In' : 'Create Account'}
+              {isSignUp ? 'Sign In' : 'Register Admin'}
             </button>
           </p>
         </div>
